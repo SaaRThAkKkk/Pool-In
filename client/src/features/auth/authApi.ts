@@ -18,7 +18,18 @@ export interface SendOtpResult {
   resendAvailableAt: string
 }
 
-export function registerUser(input: RegisterForm) {
+export function sendSignupOtp(phone: string) {
+  return api<SendOtpResult>('/auth/phone/signup-otp/send', { method: 'POST', body: JSON.stringify({ phone }) })
+}
+
+export function verifySignupOtp(phone: string, code: string) {
+  return api<{ phoneProof: string; phone: string; expiresInSeconds: number }>('/auth/phone/signup-otp/verify', {
+    method: 'POST',
+    body: JSON.stringify({ phone, code }),
+  })
+}
+
+export function registerUser(input: RegisterForm & { phoneProof?: string }) {
   return api<{ user: PublicUser }>('/auth/register', { method: 'POST', body: JSON.stringify(input) })
 }
 

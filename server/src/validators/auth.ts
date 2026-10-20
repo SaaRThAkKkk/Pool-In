@@ -9,7 +9,7 @@ export function normalizeIndianPhone(input: string): string | null {
   return m ? `+91${m[1]}` : null;
 }
 
-const phone = z
+export const phoneSchema = z
   .string()
   .trim()
   .transform((v, ctx) => {
@@ -31,9 +31,11 @@ const password = z
 export const registerSchema = z.object({
   name: z.string().trim().min(2, 'Name must be at least 2 characters').max(60),
   email: z.string().trim().toLowerCase().pipe(z.email('Enter a valid email address')),
-  phone,
+  phone: phoneSchema,
   password,
   gender: z.enum(GENDERS).default('prefer_not_to_say'),
+  // Optional proof from the signup OTP flow. Never trusted without checking the signature and phone binding.
+  phoneProof: z.string().max(2000).optional(),
 });
 
 export type RegisterInput = z.infer<typeof registerSchema>;

@@ -11,6 +11,11 @@ const schema = z.object({
   // Optional: comma-separated DNS servers for Node (fixes mongodb+srv lookups on networks whose DNS rejects SRV queries)
   DNS_SERVERS: z.string().optional(),
   SMS_PROVIDER: z.enum(['console']).default('console'),
+  // When true, users with an unverified phone are blocked from booking/joining rides. Off for now.
+  REQUIRE_VERIFIED_PHONE_FOR_BOOKING: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
   ENABLE_PAID_PRIVATE_RIDES: z
     .enum(['true', 'false'])
     .default('false')

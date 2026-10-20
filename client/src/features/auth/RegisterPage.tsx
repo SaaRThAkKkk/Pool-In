@@ -1,12 +1,13 @@
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../../lib/api'
 import { ME_KEY } from './useMe'
 import { registerUser, type PublicUser } from './authApi'
-import { GENDER_OPTIONS, registerSchema, type RegisterForm } from './registerSchema'
+import { GENDER_OPTIONS, normalizeIndianPhone, registerSchema, type RegisterForm } from './registerSchema'
+import { SignupPhoneVerify, type PhoneProof } from './SignupPhoneVerify'
 
 const inputClass =
   'mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 aria-[invalid=true]:border-red-500'
@@ -36,15 +37,20 @@ function Field(props: { id: string; label: string; error?: string; hint?: string
 export function RegisterPage() {
   const queryClient = useQueryClient()
   const [created, setCreated] = useState<PublicUser | null>(null)
+  const [proof, setProof] = useState<PhoneProof | null>(null)
   const {
     register,
     handleSubmit,
     setError,
+    control,
     formState: { errors },
   } = useForm<RegisterForm>({
     resolver: zodResolver(registerSchema),
     defaultValues: { gender: 'prefer_not_to_say' },
   })
+  const phoneValue = useWatch({ control, name: 'phone' }) ?? ''
+  // Only trust a proof that still matches the number currently in the field.
+  const activeProof = proof && proof.phone === normalizeIndianPhone(phoneValue) ? proof : null
 
   const mutation = useMutation({
     mutationFn: registerUser,
@@ -53,7 +59,9 @@ export function RegisterPage() {
       setCreated(data.user)
     },
     onError: (err) => {
-      if (err instanceof ApiError && err.code === 'EMAIL_ALREADY_REGISTERED') {
+      if (err instanceof ApiError && err.code === 'INVALID_PHONE_PROOF') {
+        setProof(null)
+      } else if (err instanceof ApiError && err.code === 'EMAIL_ALREADY_REGISTERED') {
         setError('email', { message: err.message })
       } else if (err instanceof ApiError && err.code === 'PHONE_ALREADY_REGISTERED') {
         setError('phone', { message: err.message })
@@ -65,18 +73,29 @@ export function RegisterPage() {
     return (
       <div role="status" className="mx-auto max-w-md rounded-lg border border-green-200 bg-green-50 p-6">
         <h1 className="text-2xl font-bold text-green-900">Welcome, {created.name}!</h1>
-        <p className="mt-2 text-sm text-green-800">
-          Your account has been created. Next, confirm your phone number so other riders know it's reachable.
-        </p>
-        <Link
-          to="/verify-phone"
-          className="mt-4 inline-block rounded-md bg-brand-600 px-4 py-2 font-medium text-white hover:bg-brand-700"
-        >
-          Verify phone number
-        </Link>
-        <Link to="/" className="mt-4 ml-4 inline-block text-brand-600 underline">
-          Skip for now
-        </Link>
+        {created.phoneVerified ? (
+          <>
+            <p className="mt-2 text-sm text-green-800">Your account has been created and your phone number is verified.</p>
+            <Link to="/" className="mt-4 inline-block text-brand-600 underline">
+              Go to home
+            </Link>
+          </>
+        ) : (
+          <>
+            <p className="mt-2 text-sm text-green-800">
+              Your account has been created. Your phone number is not verified yet. You can verify it any time.
+            </p>
+            <Link
+              to="/verify-phone"
+              className="mt-4 inline-block rounded-md bg-brand-600 px-4 py-2 font-medium text-white hover:bg-brand-700"
+            >
+              Verify phone number
+            </Link>
+            <Link to="/" className="mt-4 ml-4 inline-block text-brand-600 underline">
+              Verify later
+            </Link>
+          </>
+        )}
       </div>
     )
   }
@@ -95,7 +114,11 @@ export function RegisterPage() {
   return (
     <div className="mx-auto max-w-md rounded-lg border border-slate-200 bg-white p-6">
       <h1 className="text-2xl font-bold">Create your account</h1>
-      <form noValidate onSubmit={handleSubmit((v) => mutation.mutate(v))} className="mt-4 space-y-4">
+      <form
+        noValidate
+        onSubmit={handleSubmit((v) => mutation.mutate({ ...v, ...(activeProof ? { phoneProof: activeProof.token } : {}) }))}
+        className="mt-4 space-y-4"
+      >
         <Field id="name" label="Full name" error={errors.name?.message}>
           <input
             id="name"
@@ -125,9 +148,16 @@ export function RegisterPage() {
             className={inputClass}
             aria-invalid={!!errors.phone}
             aria-describedby={describe('phone', true)}
+            readOnly={!!activeProof}
             {...register('phone')}
           />
         </Field>
+        <SignupPhoneVerify
+          phone={phoneValue}
+          proof={activeProof}
+          onVerified={setProof}
+          onReset={() => setProof(null)}
+        />
         <Field
           id="password"
           label="Password"

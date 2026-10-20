@@ -23,3 +23,22 @@ export function authCookieOptions(cfg: TokenConfig): CookieOptions {
     path: '/',
   };
 }
+
+// Proof that a phone number passed OTP verification before registration.
+// Signed with a key derived from (not equal to) the session secret, so it can never act as a login token
+// and a login token can never act as a proof.
+export const PHONE_PROOF_TTL_SECONDS = 15 * 60;
+const proofKey = (secret: string) => `phone-proof:${secret}`;
+
+export function signPhoneProof(phone: string, secret: string): string {
+  return jwt.sign({ typ: 'phone-proof', phone }, proofKey(secret), { expiresIn: PHONE_PROOF_TTL_SECONDS });
+}
+
+export function isValidPhoneProof(token: string, phone: string, secret: string): boolean {
+  try {
+    const payload = jwt.verify(token, proofKey(secret));
+    return typeof payload !== 'string' && payload.typ === 'phone-proof' && payload.phone === phone;
+  } catch {
+    return false;
+  }
+}

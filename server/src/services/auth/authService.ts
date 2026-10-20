@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { User, type UserDocument } from '../../models/User.js';
-import { conflict } from '../../utils/errors.js';
+import { AppError, conflict } from '../../utils/errors.js';
+import { isValidPhoneProof } from '../../utils/token.js';
 import type { RegisterInput } from '../../validators/auth.js';
 
 const BCRYPT_ROUNDS = 12;
@@ -9,7 +10,16 @@ function isDuplicateKeyError(err: unknown): err is { code: number; keyPattern?: 
   return typeof err === 'object' && err !== null && (err as { code?: number }).code === 11000;
 }
 
-export async function registerUser(input: RegisterInput): Promise<UserDocument> {
+export async function registerUser(input: RegisterInput, jwtSecret: string): Promise<UserDocument> {
+  // A proof must match this exact phone; anything else is rejected rather than silently ignored.
+  if (input.phoneProof !== undefined && !isValidPhoneProof(input.phoneProof, input.phone, jwtSecret)) {
+    throw new AppError(
+      400,
+      'INVALID_PHONE_PROOF',
+      'Your phone verification has expired or does not match this number. Verify the number again.',
+    );
+  }
+
   // Cheap pre-check for a friendly error; the unique indexes below are the real guarantee.
   const existing = await User.findOne({ $or: [{ email: input.email }, { phone: input.phone }] })
     .select('email')
@@ -24,6 +34,7 @@ export async function registerUser(input: RegisterInput): Promise<UserDocument> 
       phone: input.phone,
       gender: input.gender,
       passwordHash,
+      ...(input.phoneProof !== undefined ? { phoneVerifiedAt: new Date() } : {}),
     });
   } catch (err) {
     // Two simultaneous registrations can both pass the pre-check.

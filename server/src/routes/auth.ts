@@ -4,7 +4,7 @@ import { validateBody } from '../middleware/validate.js';
 import { makeLimiter } from '../middleware/rateLimit.js';
 import { makeRequireAuth } from '../middleware/requireAuth.js';
 import { registerSchema } from '../validators/auth.js';
-import { verifyOtpSchema } from '../validators/phone.js';
+import { signupOtpSendSchema, signupOtpVerifySchema, verifyOtpSchema } from '../validators/phone.js';
 import type { TokenConfig } from '../utils/token.js';
 import type { SmsProvider } from '../services/sms/index.js';
 
@@ -29,6 +29,21 @@ export function createAuthRouter({ token, rateLimitEnabled, sms }: AuthRouterOpt
   );
 
   router.get('/me', requireAuth, controller.me);
+
+  // Verify a phone number during registration, before an account exists. These send SMS to arbitrary
+  // numbers, so per-phone limits (in the service) and per-IP limits apply. Add CAPTCHA before going public.
+  router.post(
+    '/phone/signup-otp/send',
+    makeLimiter(rateLimitEnabled, { windowMs: HOUR, limit: 10 }),
+    validateBody(signupOtpSendSchema),
+    controller.sendSignupOtp,
+  );
+  router.post(
+    '/phone/signup-otp/verify',
+    makeLimiter(rateLimitEnabled, { windowMs: HOUR, limit: 60 }),
+    validateBody(signupOtpVerifySchema),
+    controller.verifySignupOtp,
+  );
 
   // Per-user cooldown, hourly send cap and attempt limits are enforced in the service;
   // these per-IP limiters are an additional outer layer.

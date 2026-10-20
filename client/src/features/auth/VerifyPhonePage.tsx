@@ -1,31 +1,11 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2 } from 'lucide-react'
 import { ApiError } from '../../lib/api'
 import { sendPhoneOtp, verifyPhoneOtp, type SendOtpResult } from './authApi'
+import { CODE_LENGTH, otpErrorText as errorText, useCountdown } from './otpHelpers'
 import { ME_KEY, useMe } from './useMe'
-
-const CODE_LENGTH = 6
-
-function useCountdown(until: string | undefined) {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    if (!until) return
-    const id = setInterval(() => setNow(Date.now()), 500)
-    return () => clearInterval(id)
-  }, [until])
-  return until ? Math.max(0, Math.ceil((new Date(until).getTime() - now) / 1000)) : 0
-}
-
-function errorText(err: unknown): string | null {
-  if (!err) return null
-  if (err instanceof ApiError) {
-    const remaining = (err.details as { attemptsRemaining?: number } | undefined)?.attemptsRemaining
-    return remaining !== undefined ? `${err.message}. ${remaining} attempt${remaining === 1 ? '' : 's'} left.` : err.message
-  }
-  return 'Could not reach the server. Please try again.'
-}
 
 export function VerifyPhonePage() {
   const queryClient = useQueryClient()
