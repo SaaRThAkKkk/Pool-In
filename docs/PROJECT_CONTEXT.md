@@ -1,0 +1,98 @@
+# Pool-In: project context
+
+Handoff notes so work can resume in a new session. Last updated: 2026-10-21.
+The full spec is the PRD (detailed version pasted in chat; consolidated PDF `Pool-In_PRD_Technical_Specification.pdf`). This file records what the project is, what is built, and the decisions and gotchas learned so far.
+
+## What we are building
+
+Ride-sharing / cab-pooling web app, India first, one pilot city (not chosen yet). It matches people on route, time, seats and luggage, lets them negotiate a contribution, then opens a private **Pool Room** (chat, itinerary, opt-in live location).
+
+Three ride types in one search:
+- **A. Existing booked cab**: someone shares seats in a cab they already booked. Pool-In never edits the external booking.
+- **B. Owner-listed private vehicle**: owner offers seats on a planned trip.
+- **C. Passenger group**: passengers with no cab find each other and arrange one.
+
+Principles: hard constraints (seats, luggage volume, time, route, women-only, budget) exclude results, only feasible results are ranked (route 40 / time 25 / pickup proximity 20 / cost 15). Everything is enforced on the server. Never imply a booking or payment happened when only a match exists. Verification and women-only matching are never presented as safety guarantees.
+
+## Stack
+
+| Layer | Tech |
+|---|---|
+| Client (`client/`) | React 19, TypeScript, Vite 8, Tailwind 4, React Router 7, TanStack Query, React Hook Form + Zod (resolvers pinned to v5), Leaflet (not used yet), socket.io-client (not used yet) |
+| Server (`server/`) | Node 24, Express 5, TypeScript, Mongoose 9, Socket.IO (bootstrap only), Zod 4, helmet, pino, bcryptjs, jsonwebtoken, nodemon + tsx for dev |
+| Database | MongoDB Atlas (free M0). Tests use mongodb-memory-server |
+| Tests | Vitest, Supertest, React Testing Library, user-event |
+
+Planned but not started: maps via OpenStreetMap (Nominatim + OSRM) behind a `MapsProvider` interface, Playwright e2e.
+
+## Repo and workflow
+
+- GitHub: https://github.com/SaaRThAkKkk/Pool-In (collaborator: a friend; give Write access).
+- Branches: `main` = initial scaffold only. `feat/auth` (pushed, no PR opened yet) has registration, phone OTP and the booking guard.
+- Work on feature branches and open PRs; see `CONTRIBUTING.md`.
+- Local git identity is set per-repo (`SaaRThAkKkk`). Commit messages end with `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`.
+- Folder names are `client/` and `server/`. Phases follow the PRD: 1 foundation/auth, 2 vehicles + rides, 3 matching, 4 requests + negotiation, 5 Pool Room + itinerary, 6 safety + live location, 7 hardening/deploy.
+
+## Run it
+
+From `D:\Study\Pool-In`, in two terminals:
+```
+npm run dev:server    # http://localhost:4000, API under /api
+npm run dev:client    # http://localhost:5173, proxies /api and /socket.io to the server
+npm test              # server + client tests
+npm run build
+```
+First time on a machine: `npm run install:all`, then copy `server/.env.example` to `server/.env`.
+
+`server/.env` (git-ignored) needs `MONGODB_URI` and `JWT_SECRET`. Other settings and defaults are in `server/.env.example`: `PORT`, `CLIENT_ORIGIN`, `JWT_EXPIRES_DAYS`, `DNS_SERVERS` (optional), `SMS_PROVIDER=console`, `REQUIRE_VERIFIED_PHONE_FOR_BOOKING=false`, `ENABLE_PAID_PRIVATE_RIDES=false`.
+
+## What is built
+
+**Server**
+- App skeleton: env validation (zod), Mongo connection, pino logging with redaction, helmet, CORS allowlist, consistent error envelope `{ success:false, error:{code,message,details?} }`, `GET /api/health`.
+- `POST /api/auth/register`: validates input, normalises email (lowercase) and Indian phone (stored as `+91XXXXXXXXXX`), bcrypt (12 rounds), password 8-72 chars with a letter and a number, duplicate email/phone -> 409 (race-safe via unique indexes), ignores privileged fields, sets an HttpOnly SameSite=Lax JWT cookie (`pool_in_token`, 7 days), rate limit 10/hour/IP. Optional `phoneProof` marks the phone verified.
+- `GET /api/auth/me` and `requireAuth` middleware (cookie JWT, reloads the user each request, blocks suspended accounts).
+- Phone OTP (6 digits, 5 min expiry, 5 attempts spent atomically, 60 s resend cooldown, 5 sends/hour, single-use, newest code only, stored as a keyed hash, SMS failure leaves no usable code):
+  - signed-in: `POST /api/auth/phone/send-otp`, `/verify-otp` (sets `phoneVerifiedAt`)
+  - during signup, no account yet: `POST /api/auth/phone/signup-otp/send`, `/verify` returns a 15-minute `phoneProof` bound to that number (signed with a derived key, cannot act as a session)
+- `SmsProvider` interface with a **dev-only console provider**: no SMS is sent, the code is printed in the backend terminal. Production startup is refused with this provider.
+- `requireVerifiedPhone` guard middleware plus the `REQUIRE_VERIFIED_PHONE_FOR_BOOKING` setting (default **false**). Not applied to any route yet because no booking/join routes exist.
+- Models: `User` (name, email, phone, passwordHash select:false, gender self-declared, role, accountStatus, verificationStatus, phoneVerifiedAt), `OtpCode` (TTL purge).
+
+**Client**
+- Layout with skip link, landing, how-it-works, safety pages, 404, API health indicator.
+- Register page: react-hook-form + zod, server error mapping, and a verify-now / verify-later box under the phone field (number locks once verified, Enter in the code box does not submit the form).
+- `/verify-phone` page for verifying later (needs a signed-in cookie).
+- Login page is still a placeholder.
+
+**Tests:** 74 server, 20 client, all passing at last run.
+
+## Known limits and gotchas
+
+- **No real SMS yet.** Needs a provider account. Options discussed: Twilio trial (free, verified numbers only), or MSG91 / 2Factor / Fast2SMS (India, needs KYC + DLT template). Not chosen. Credentials must only go in `server/.env`.
+- **Add CAPTCHA** on the signup "Send code" step before going public (SMS-pumping risk).
+- **No login/logout yet**, so once the registration cookie expires the user cannot get back in. `/verify-phone` shows "sign in" for logged-out users.
+- **Atlas SRV DNS fails in Node on the dev machine** (`querySrv EBADRESP`, even with Google DNS) while Windows resolves it. `MONGODB_URI` in `server/.env` therefore uses Atlas's standard (non-SRV) `mongodb://host1,host2,host3/...` form. A friend on a different network may be fine with the SRV string, or may need the same fix.
+- npm blocked install scripts for `mongodb-memory-server` and `esbuild` (warning only, nothing broke). First test run downloads a MongoDB binary and can time out once; re-run.
+- `@hookform/resolvers` must stay on v5 (v6 conflicts with peers). Client uses `useWatch`, not `watch`, to keep the React Compiler lint clean.
+- Terminal opened before installing Node needs a restart to find `npm`.
+- Never paste connection strings or passwords in chat; edit `server/.env` directly.
+- Test-only: parallel supertest requests print a harmless Node MaxListeners warning.
+
+## Decisions made
+
+- Phone is required at signup (Indian numbers only for now). Gender is optional and only used for women-only matching later; it is self-declared, not verified.
+- `verificationStatus` stays `UNVERIFIED`: phone verification only proves the number receives messages, not identity.
+- Paid private-vehicle rides stay behind a feature flag, off, until legal eligibility is defined.
+- Payments, identity verification and external cab-booking integrations are out of scope for the MVP.
+- If adding "change phone number", it must clear `phoneVerifiedAt`.
+
+## Next steps (suggested order)
+
+1. Login, logout, navbar showing the signed-in user, protected routes, auth context.
+2. Open a PR for `feat/auth` and have the friend review.
+3. Choose and wire a real SMS provider (and CAPTCHA).
+4. Phase 2: vehicles and the three ride types (seat + luggage fields, ride state machine, listing/search).
+5. Phase 3 matching engine, then negotiation, Pool Room, safety/location, hardening (see PRD section 20).
+
+Open questions still to settle: pilot city, whether the first build covers the whole PRD or Phases 1-5, and when to apply the verified-phone guard to booking routes.
