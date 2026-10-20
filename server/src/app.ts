@@ -7,10 +7,16 @@ import { logger } from './utils/logger.js';
 import { createApiRouter } from './routes/index.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import type { Env } from './config/env.js';
+import type { SmsProvider } from './services/sms/index.js';
 
 export type AppConfig = Pick<Env, 'CLIENT_ORIGIN' | 'JWT_SECRET' | 'JWT_EXPIRES_DAYS' | 'NODE_ENV'>;
 
-export function createApp(env: AppConfig, opts: { rateLimitEnabled?: boolean } = {}): Express {
+export interface AppOptions {
+  sms: SmsProvider;
+  rateLimitEnabled?: boolean;
+}
+
+export function createApp(env: AppConfig, opts: AppOptions): Express {
   const app = express();
 
   app.disable('x-powered-by');
@@ -30,6 +36,7 @@ export function createApp(env: AppConfig, opts: { rateLimitEnabled?: boolean } =
     createApiRouter({
       token: { JWT_SECRET: env.JWT_SECRET, JWT_EXPIRES_DAYS: env.JWT_EXPIRES_DAYS, NODE_ENV: env.NODE_ENV },
       rateLimitEnabled: opts.rateLimitEnabled ?? env.NODE_ENV !== 'test',
+      sms: opts.sms,
     }),
   );
 

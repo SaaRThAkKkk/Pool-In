@@ -19,6 +19,8 @@ const userSchema = new Schema(
     accountStatus: { type: String, enum: ACCOUNT_STATUSES, default: 'ACTIVE' },
     verificationStatus: { type: String, enum: VERIFICATION_STATUSES, default: 'UNVERIFIED' },
     profileImage: { type: String },
+    // Set only after the user proves control of `phone` with an OTP. Must be cleared if the phone ever changes.
+    phoneVerifiedAt: { type: Date },
   },
   { timestamps: true },
 );
@@ -36,6 +38,7 @@ export function toPublicUser(user: UserDocument) {
     phone: user.phone,
     gender: user.gender,
     role: user.role,
+    phoneVerified: Boolean(user.phoneVerifiedAt),
     verificationStatus: user.verificationStatus,
     createdAt: user.createdAt,
   };

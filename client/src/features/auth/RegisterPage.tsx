@@ -2,8 +2,9 @@ import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../../lib/api'
+import { ME_KEY } from './useMe'
 import { registerUser, type PublicUser } from './authApi'
 import { GENDER_OPTIONS, registerSchema, type RegisterForm } from './registerSchema'
 
@@ -33,6 +34,7 @@ function Field(props: { id: string; label: string; error?: string; hint?: string
 }
 
 export function RegisterPage() {
+  const queryClient = useQueryClient()
   const [created, setCreated] = useState<PublicUser | null>(null)
   const {
     register,
@@ -46,7 +48,10 @@ export function RegisterPage() {
 
   const mutation = useMutation({
     mutationFn: registerUser,
-    onSuccess: (data) => setCreated(data.user),
+    onSuccess: (data) => {
+      queryClient.setQueryData(ME_KEY, data.user)
+      setCreated(data.user)
+    },
     onError: (err) => {
       if (err instanceof ApiError && err.code === 'EMAIL_ALREADY_REGISTERED') {
         setError('email', { message: err.message })
@@ -61,10 +66,16 @@ export function RegisterPage() {
       <div role="status" className="mx-auto max-w-md rounded-lg border border-green-200 bg-green-50 p-6">
         <h1 className="text-2xl font-bold text-green-900">Welcome, {created.name}!</h1>
         <p className="mt-2 text-sm text-green-800">
-          Your account has been created. Your profile is not verified yet.
+          Your account has been created. Next, confirm your phone number so other riders know it's reachable.
         </p>
-        <Link to="/" className="mt-4 inline-block text-brand-600 underline">
-          Go to home
+        <Link
+          to="/verify-phone"
+          className="mt-4 inline-block rounded-md bg-brand-600 px-4 py-2 font-medium text-white hover:bg-brand-700"
+        >
+          Verify phone number
+        </Link>
+        <Link to="/" className="mt-4 ml-4 inline-block text-brand-600 underline">
+          Skip for now
         </Link>
       </div>
     )

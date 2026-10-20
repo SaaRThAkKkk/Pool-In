@@ -3,6 +3,7 @@ import http from 'http';
 import { loadEnv } from './config/env.js';
 import { connectDb, disconnectDb } from './config/db.js';
 import { createApp } from './app.js';
+import { createSmsProvider } from './services/sms/index.js';
 import { createSocketServer } from './sockets/index.js';
 import { logger } from './utils/logger.js';
 
@@ -13,7 +14,7 @@ async function main() {
   }
   await connectDb(env.MONGODB_URI);
 
-  const app = createApp(env);
+  const app = createApp(env, { sms: createSmsProvider(env) });
   const server = http.createServer(app);
   createSocketServer(server, env);
 

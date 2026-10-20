@@ -18,4 +18,8 @@ export const forbidden = (message = 'You do not have permission to do this') =>
   new AppError(403, 'FORBIDDEN', message);
 export const notFound = (message = 'Resource not found') => new AppError(404, 'NOT_FOUND', message);
 export const conflict = (code: string, message: string) => new AppError(409, code, message);
-export const unprocessable = (code: string, message: string) => new AppError(422, code, message);
+export const tooManyRequests = (code: string, message: string, details?: unknown) =>
+  new AppError(429, code, message, details);
+export const badGateway = (code: string, message: string) => new AppError(502, code, message);
+export const unprocessable = (code: string, message: string, details?: unknown) =>
+  new AppError(422, code, message, details);

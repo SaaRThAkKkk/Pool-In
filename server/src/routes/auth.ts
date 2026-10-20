@@ -1,34 +1,50 @@
 import { Router } from 'express';
-import { rateLimit } from 'express-rate-limit';
 import { makeAuthController } from '../controllers/authController.js';
 import { validateBody } from '../middleware/validate.js';
+import { makeLimiter } from '../middleware/rateLimit.js';
+import { makeRequireAuth } from '../middleware/requireAuth.js';
 import { registerSchema } from '../validators/auth.js';
+import { verifyOtpSchema } from '../validators/phone.js';
 import type { TokenConfig } from '../utils/token.js';
+import type { SmsProvider } from '../services/sms/index.js';
 
 export interface AuthRouterOptions {
   token: TokenConfig;
   rateLimitEnabled: boolean;
+  sms: SmsProvider;
 }
 
-export function createAuthRouter({ token, rateLimitEnabled }: AuthRouterOptions): Router {
+const HOUR = 60 * 60 * 1000;
+
+export function createAuthRouter({ token, rateLimitEnabled, sms }: AuthRouterOptions): Router {
   const router = Router();
-  const controller = makeAuthController(token);
+  const controller = makeAuthController(token, { sms, secret: token.JWT_SECRET });
+  const requireAuth = makeRequireAuth(token.JWT_SECRET);
 
-  const limiter = rateLimitEnabled
-    ? rateLimit({
-        windowMs: 60 * 60 * 1000,
-        limit: 10,
-        standardHeaders: true,
-        legacyHeaders: false,
-        handler: (_req, res) => {
-          res.status(429).json({
-            success: false,
-            error: { code: 'RATE_LIMITED', message: 'Too many attempts. Please try again later.' },
-          });
-        },
-      })
-    : (_req: unknown, _res: unknown, next: () => void) => next();
+  router.post(
+    '/register',
+    makeLimiter(rateLimitEnabled, { windowMs: HOUR, limit: 10 }),
+    validateBody(registerSchema),
+    controller.register,
+  );
 
-  router.post('/register', limiter, validateBody(registerSchema), controller.register);
+  router.get('/me', requireAuth, controller.me);
+
+  // Per-user cooldown, hourly send cap and attempt limits are enforced in the service;
+  // these per-IP limiters are an additional outer layer.
+  router.post(
+    '/phone/send-otp',
+    requireAuth,
+    makeLimiter(rateLimitEnabled, { windowMs: HOUR, limit: 20 }),
+    controller.sendOtp,
+  );
+  router.post(
+    '/phone/verify-otp',
+    requireAuth,
+    makeLimiter(rateLimitEnabled, { windowMs: HOUR, limit: 60 }),
+    validateBody(verifyOtpSchema),
+    controller.verifyOtp,
+  );
+
   return router;
 }

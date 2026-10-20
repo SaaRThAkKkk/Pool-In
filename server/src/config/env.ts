@@ -10,10 +10,14 @@ const schema = z.object({
   CLIENT_ORIGIN: z.string().default('http://localhost:5173'),
   // Optional: comma-separated DNS servers for Node (fixes mongodb+srv lookups on networks whose DNS rejects SRV queries)
   DNS_SERVERS: z.string().optional(),
+  SMS_PROVIDER: z.enum(['console']).default('console'),
   ENABLE_PAID_PRIVATE_RIDES: z
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+}).refine((e) => !(e.NODE_ENV === 'production' && e.SMS_PROVIDER === 'console'), {
+  path: ['SMS_PROVIDER'],
+  message: 'the console SMS provider is development-only; configure a real SMS provider for production',
 });
 
 export type Env = z.infer<typeof schema>;
