@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { createApp } from '../src/app.js';
 import { loadEnv } from '../src/config/env.js';
+import { makeApp } from './helpers.js';
 
-const app = createApp({ CLIENT_ORIGIN: 'http://localhost:5173' });
+const app = makeApp();
 
 describe('health', () => {
   it('GET /api/health returns ok', async () => {

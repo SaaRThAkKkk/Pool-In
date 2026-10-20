@@ -6,7 +6,7 @@ const schema = z.object({
   PORT: z.coerce.number().int().positive().default(4000),
   MONGODB_URI: z.string().min(1, 'MONGODB_URI is required'),
   JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 characters'),
-  JWT_EXPIRES_IN: z.string().default('7d'),
+  JWT_EXPIRES_DAYS: z.coerce.number().int().positive().default(7),
   CLIENT_ORIGIN: z.string().default('http://localhost:5173'),
   // Optional: comma-separated DNS servers for Node (fixes mongodb+srv lookups on networks whose DNS rejects SRV queries)
   DNS_SERVERS: z.string().optional(),

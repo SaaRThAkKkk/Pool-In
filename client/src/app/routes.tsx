@@ -3,6 +3,7 @@ import { Layout } from '../components/Layout'
 import { LandingPage } from '../pages/LandingPage'
 import { HowItWorksPage } from '../pages/HowItWorksPage'
 import { SafetyPage } from '../pages/SafetyPage'
+import { RegisterPage } from '../features/auth/RegisterPage'
 import { PlaceholderPage } from '../pages/PlaceholderPage'
 import { NotFoundPage } from '../pages/NotFoundPage'
 
@@ -14,7 +15,7 @@ export function AppRoutes() {
         <Route path="how-it-works" element={<HowItWorksPage />} />
         <Route path="safety" element={<SafetyPage />} />
         <Route path="login" element={<PlaceholderPage title="Log in" />} />
-        <Route path="register" element={<PlaceholderPage title="Create an account" />} />
+        <Route path="register" element={<RegisterPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>
