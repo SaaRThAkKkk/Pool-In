@@ -5,14 +5,10 @@ import { Car } from 'lucide-react'
 import { logoutUser } from '../features/auth/authApi'
 import { ME_KEY, useMe } from '../features/auth/useMe'
 
-const navClass = ({ isActive }: { isActive: boolean }) =>
-  `rounded px-3 py-2 text-sm font-medium ${isActive ? 'text-brand-700' : 'text-slate-600 hover:text-slate-900'}`
-
 function AuthLinks() {
   const me = useMe()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
-
   const location = useLocation()
   const clearOnHome = useRef(false)
 
@@ -43,7 +39,7 @@ function AuthLinks() {
   if (me.data) {
     return (
       <>
-        <NavLink to="/dashboard" className={navClass}>
+        <NavLink to="/dashboard" className="nav-link">
           Dashboard
         </NavLink>
         <span className="hidden px-2 text-sm text-slate-500 sm:inline">{me.data.name}</span>
@@ -51,7 +47,7 @@ function AuthLinks() {
           type="button"
           onClick={() => logout.mutate()}
           disabled={logout.isPending}
-          className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-slate-100 disabled:opacity-60"
+          className="btn-secondary !px-3 !py-1.5 text-sm disabled:opacity-60"
         >
           Log out
         </button>
@@ -61,13 +57,10 @@ function AuthLinks() {
 
   return (
     <>
-      <NavLink to="/login" className={navClass}>
+      <NavLink to="/login" className="nav-link">
         Log in
       </NavLink>
-      <Link
-        to="/register"
-        className="ml-2 rounded-md bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700"
-      >
+      <Link to="/register" className="btn-primary ml-2 !px-4 !py-1.5 text-sm">
         Sign up
       </Link>
     </>
@@ -75,24 +68,29 @@ function AuthLinks() {
 }
 
 export function Layout() {
+  const location = useLocation()
+
   return (
     <div className="flex min-h-screen flex-col">
       <a
         href="#main"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:rounded focus:bg-white focus:p-2"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded focus:bg-white focus:p-2"
       >
         Skip to content
       </a>
-      <header className="border-b border-slate-200 bg-white">
+      <header className="sticky top-0 z-50 border-b border-slate-200/70 bg-white/75 backdrop-blur-lg">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-          <Link to="/" className="flex items-center gap-2 text-lg font-bold text-brand-700">
-            <Car aria-hidden className="h-6 w-6" /> Pool-In
+          <Link to="/" className="group flex items-center gap-2 text-lg font-extrabold text-brand-700">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-linear-to-br from-brand-600 to-indigo-600 text-white shadow-md shadow-brand-500/30 transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-110">
+              <Car aria-hidden className="h-5 w-5" />
+            </span>
+            Pool-In
           </Link>
           <nav aria-label="Main" className="flex items-center gap-1">
-            <NavLink to="/how-it-works" className={navClass}>
+            <NavLink to="/how-it-works" className="nav-link">
               How it works
             </NavLink>
-            <NavLink to="/safety" className={navClass}>
+            <NavLink to="/safety" className="nav-link">
               Safety
             </NavLink>
             <AuthLinks />
@@ -100,9 +98,12 @@ export function Layout() {
         </div>
       </header>
       <main id="main" className="mx-auto w-full max-w-6xl flex-1 px-4 py-8">
-        <Outlet />
+        {/* Keyed by path so each page fades in on navigation. */}
+        <div key={location.pathname} className="animate-fade-up">
+          <Outlet />
+        </div>
       </main>
-      <footer className="border-t border-slate-200 bg-white py-4 text-center text-xs text-slate-500">
+      <footer className="border-t border-slate-200/70 bg-white/70 py-4 text-center text-xs text-slate-500 backdrop-blur">
         Pool-In coordinates shared rides. Matching and verification badges are not a guarantee of safety.
       </footer>
     </div>

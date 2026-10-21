@@ -23,7 +23,7 @@ function makeSchema(needsStart: boolean) {
 type PoolForm = z.input<ReturnType<typeof makeSchema>>
 
 const inputClass =
-  'mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm aria-[invalid=true]:border-red-500 read-only:bg-slate-100'
+  'field-input mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm aria-[invalid=true]:border-red-500 read-only:bg-slate-100'
 
 function Error({ id, message }: { id: string; message?: string }) {
   return message ? (
@@ -142,10 +142,7 @@ export function JoinPoolPanel({ position, onClose }: { position: GeoPosition | n
       </p>
 
       <div className="flex items-center gap-3">
-        <button
-          type="submit"
-          className="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
-        >
+        <button type="submit" className="btn-primary !py-2 text-sm">
           Find a pool
         </button>
         <button type="button" onClick={onClose} className="text-sm text-slate-600 underline">

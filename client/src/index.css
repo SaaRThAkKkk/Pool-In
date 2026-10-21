@@ -6,13 +6,132 @@
   --color-brand-500: #2563eb;
   --color-brand-600: #1d4ed8;
   --color-brand-700: #1e40af;
+
+  --animate-fade-up: fade-up 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  --animate-fade-in: fade-in 0.8s ease-out both;
+  --animate-pop-in: pop-in 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes pop-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96) translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+  @apply text-slate-900 antialiased;
+  background-color: #f8fafc;
+  background-image:
+    radial-gradient(60rem 30rem at 85% -10%, rgb(99 102 241 / 0.1), transparent 60%),
+    radial-gradient(50rem 28rem at -10% 10%, rgb(37 99 235 / 0.09), transparent 60%);
+  background-attachment: fixed;
+}
+
+::selection {
+  background: rgb(37 99 235 / 0.25);
 }
 
 :focus-visible {
   outline: 2px solid var(--color-brand-500);
   outline-offset: 2px;
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-linear-to-r from-brand-600 to-indigo-600 px-5 py-2.5 font-medium text-white shadow-md shadow-brand-500/25 transition duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-brand-500/30 active:translate-y-0 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 disabled:hover:shadow-md;
+  }
+  .btn-secondary {
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white/90 px-5 py-2.5 font-medium text-slate-800 transition duration-200 hover:-translate-y-0.5 hover:border-slate-400 hover:bg-white hover:shadow-md active:translate-y-0 active:scale-[0.98];
+  }
+  .card-hover {
+    @apply transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-brand-500/10;
+  }
+  .nav-link {
+    @apply relative rounded px-3 py-2 text-sm font-medium text-slate-600 transition-colors duration-200 hover:text-slate-900;
+  }
+  .nav-link::after {
+    content: '';
+    @apply absolute inset-x-3 -bottom-0.5 h-0.5 origin-left scale-x-0 rounded-full bg-brand-600 transition-transform duration-300;
+  }
+  .nav-link:hover::after,
+  .nav-link[aria-current='page']::after {
+    @apply scale-x-100;
+  }
+  .nav-link[aria-current='page'] {
+    @apply text-brand-700;
+  }
+  .field-input {
+    @apply transition duration-200 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/15 focus:outline-none;
+  }
+}
+
+/* Pulsing "you are here" marker on the map (a Leaflet divIcon, so it needs plain CSS). */
+.user-dot {
+  background: transparent;
+  border: 0;
+}
+.user-dot-core,
+.user-dot-pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+}
+.user-dot-core {
+  background: #2563eb;
+  border: 3px solid #ffffff;
+  box-shadow: 0 1px 6px rgb(0 0 0 / 0.35);
+}
+.user-dot-pulse {
+  background: rgb(37 99 235 / 0.45);
+  animation: user-pulse 2s ease-out infinite;
+}
+@keyframes user-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(3.6);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

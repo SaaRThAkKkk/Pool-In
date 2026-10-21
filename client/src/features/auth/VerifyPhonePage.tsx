@@ -96,7 +96,7 @@ export function VerifyPhonePage() {
             type="button"
             onClick={() => send.mutate()}
             disabled={send.isPending}
-            className="w-full rounded-md bg-brand-600 px-4 py-2 font-medium text-white hover:bg-brand-700 disabled:opacity-60"
+            className="btn-primary w-full"
           >
             {send.isPending ? 'Sending…' : 'Send code'}
           </button>
@@ -133,7 +133,7 @@ export function VerifyPhonePage() {
           <button
             type="submit"
             disabled={verify.isPending || code.length !== CODE_LENGTH}
-            className="w-full rounded-md bg-brand-600 px-4 py-2 font-medium text-white hover:bg-brand-700 disabled:opacity-60"
+            className="btn-primary w-full"
           >
             {verify.isPending ? 'Verifying…' : 'Verify'}
           </button>

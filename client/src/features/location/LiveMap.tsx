@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
-import { Circle, CircleMarker, MapContainer, TileLayer, useMap } from 'react-leaflet'
+import L from 'leaflet'
+import { Circle, MapContainer, Marker, TileLayer, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { GeoPosition } from './useLiveLocation'
 
@@ -7,6 +8,14 @@ import type { GeoPosition } from './useLiveLocation'
 const DEFAULT_CENTER: [number, number] = [22.5, 79]
 const DEFAULT_ZOOM = 5
 const USER_ZOOM = 15
+
+// Pulsing dot; the animation lives in index.css (.user-dot-*).
+const userIcon = L.divIcon({
+  className: 'user-dot',
+  html: '<span class="user-dot-pulse"></span><span class="user-dot-core"></span>',
+  iconSize: [18, 18],
+  iconAnchor: [9, 9],
+})
 
 // Moves the map to the user on the first fix, and again whenever `recenterSignal` changes.
 // Later position updates only move the marker, so the map never fights a user who is panning around.
@@ -21,7 +30,7 @@ function Follow({ position, recenterSignal }: { position: GeoPosition | null; re
     if (!centered.current || wantsRecenter) {
       centered.current = true
       lastSignal.current = recenterSignal
-      map.flyTo([position.lat, position.lng], Math.max(map.getZoom(), USER_ZOOM))
+      map.flyTo([position.lat, position.lng], Math.max(map.getZoom(), USER_ZOOM), { duration: 1.8 })
     }
   }, [map, position, recenterSignal])
 
@@ -48,11 +57,7 @@ export function LiveMap({ position, recenterSignal = 0 }: { position: GeoPositio
             radius={position.accuracy}
             pathOptions={{ color: '#2563eb', weight: 1, fillOpacity: 0.12 }}
           />
-          <CircleMarker
-            center={[position.lat, position.lng]}
-            radius={8}
-            pathOptions={{ color: '#ffffff', weight: 3, fillColor: '#2563eb', fillOpacity: 1 }}
-          />
+          <Marker position={[position.lat, position.lng]} icon={userIcon} interactive={false} keyboard={false} />
         </>
       )}
       <Follow position={position} recenterSignal={recenterSignal} />

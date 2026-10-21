@@ -8,15 +8,30 @@ interface Props {
   onRecenter: () => void
 }
 
+function Pulse({ color }: { color: string }) {
+  return (
+    <span aria-hidden className="relative flex h-2.5 w-2.5">
+      <span className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-60 ${color}`} />
+      <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${color}`} />
+    </span>
+  )
+}
+
 export function LocationStatus({ status, position, onRetry, onRecenter }: Props) {
-  const button = 'ml-2 text-xs font-medium text-brand-700 underline'
+  const button = 'ml-1 text-xs font-medium text-brand-700 underline underline-offset-2 transition-colors hover:text-brand-600'
 
   return (
-    <div role="status" className="text-sm text-slate-700">
-      {status === 'locating' && !position && <p>Finding your location… allow access in your browser to start from where you are.</p>}
+    <div role="status" className="rounded-lg bg-slate-50/80 p-3 text-sm text-slate-700 ring-1 ring-slate-200/70">
+      {status === 'locating' && !position && (
+        <p className="flex items-center gap-2">
+          <Pulse color="bg-amber-500" />
+          Finding your location… allow access in your browser to start from where you are.
+        </p>
+      )}
 
       {position && (
-        <p className="flex flex-wrap items-center gap-1">
+        <p className="flex flex-wrap items-center gap-2">
+          <Pulse color="bg-emerald-500" />
           <LocateFixed aria-hidden className="h-4 w-4 text-brand-600" />
           Using your current location (within about {Math.round(position.accuracy)} m)
           <button type="button" onClick={onRecenter} className={button}>
@@ -26,11 +41,15 @@ export function LocationStatus({ status, position, onRetry, onRecenter }: Props)
       )}
 
       {status === 'error' && (
-        <p>{position ? 'Having trouble updating your location. Showing the last known position.' : "Couldn't get a location fix right now. Still trying…"}</p>
+        <p className={position ? 'mt-1' : ''}>
+          {position
+            ? 'Having trouble updating your location. Showing the last known position.'
+            : "Couldn't get a location fix right now. Still trying…"}
+        </p>
       )}
 
       {status === 'denied' && (
-        <p className="flex flex-wrap items-center gap-1">
+        <p className="flex flex-wrap items-center gap-2">
           <LocateOff aria-hidden className="h-4 w-4 text-amber-600" />
           Location access is blocked. Allow it in your browser's site settings to start from where you are.
           <button type="button" onClick={onRetry} className={button}>
@@ -41,7 +60,7 @@ export function LocationStatus({ status, position, onRetry, onRecenter }: Props)
 
       {status === 'unavailable' && <p>Your browser doesn't support location. You'll enter your start point by hand.</p>}
 
-      <p className="mt-1 text-xs text-slate-500">
+      <p className="mt-1.5 text-xs text-slate-500">
         Your location stays in your browser. It is not sent to Pool-In unless you choose to share it in a pool.
       </p>
     </div>
