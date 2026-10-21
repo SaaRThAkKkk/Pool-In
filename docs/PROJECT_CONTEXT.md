@@ -66,7 +66,10 @@ First time on a machine: `npm run install:all`, then copy `server/.env.example` 
 - `/verify-phone` page for verifying later.
 - Login page (redirects back to the page the user originally asked for, same-site paths only), navbar that switches between Log in / Sign up and Dashboard / name / Log out, `RequireAuth` route guard for `/dashboard` and `/verify-phone`, basic dashboard with a "phone not verified" banner. Logout navigates home first and clears the cached user only after arriving (otherwise the protected page bounces to /login).
 
-**Tests:** 90 server, 33 client, all passing at last run.
+- Home hero (`features/location/HomeHero.tsx`): a live Leaflet/OpenStreetMap map is the hero background. `useLiveLocation` follows the browser position with `watchPosition` (asks on page load via the browser prompt; stops on unmount). The map centres on the first fix only (later updates just move the marker); "Re-centre map" button; handles denied / unavailable / error states with a retry. The position stays in the browser and is not sent to the server.
+- "Join a pool" on the hero: signed-out users are sent to login (and returned to `/`); signed-in users get a placeholder form (start = current location, read-only, or typed text if there is no fix; destination text; departure; seats). **Submitting only shows "pool matching isn't available yet" and sends/saves nothing.** The real pool details (route, luggage, preferences, price) and place search/geocoding are still to build.
+
+**Tests:** 90 server, 49 client, all passing at last run. The Leaflet map itself is mocked in jsdom tests, so it has only been checked by build, not rendered in a test.
 
 ## Known limits and gotchas
 
@@ -77,6 +80,7 @@ First time on a machine: `npm run install:all`, then copy `server/.env.example` 
 - npm blocked install scripts for `mongodb-memory-server` and `esbuild` (warning only, nothing broke). First test run downloads a MongoDB binary and can time out once; re-run.
 - `@hookform/resolvers` must stay on v5 (v6 conflicts with peers). Client uses `useWatch`, not `watch`, to keep the React Compiler lint clean.
 - Terminal opened before installing Node needs a restart to find `npm`.
+- Map tiles come from the public OpenStreetMap tile server (fine for development, subject to its usage policy; switch to a tile provider before real traffic). Reverse geocoding (coordinates to an address) is not built; the start field shows coordinates.
 - Never paste connection strings or passwords in chat; edit `server/.env` directly.
 - Test-only: parallel supertest requests print a harmless Node MaxListeners warning.
 

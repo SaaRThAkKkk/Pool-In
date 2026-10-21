@@ -5,6 +5,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AppRoutes } from './routes'
 
+// Leaflet needs a real layout engine; the map itself is verified in the browser, not in jsdom.
+vi.mock('../features/location/LiveMap', () => ({ LiveMap: () => <div data-testid="map" /> }))
+
 const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data }))
 const unauthorized = () =>
   new Response(JSON.stringify({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } }), {

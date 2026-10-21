@@ -1,6 +1,6 @@
-import { Link } from 'react-router-dom'
 import { Luggage, Route, ShieldCheck, Users } from 'lucide-react'
 import { ApiStatus } from '../features/health/ApiStatus'
+import { HomeHero } from '../features/location/HomeHero'
 
 const features = [
   { icon: Route, title: 'Route-aware matching', text: 'Find people whose journey really overlaps yours, not just the same destination name.' },
@@ -12,20 +12,7 @@ const features = [
 export function LandingPage() {
   return (
     <div className="space-y-12">
-      <section className="py-8 text-center">
-        <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">Share the ride. Split the cost.</h1>
-        <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-600">
-          Pool-In connects people travelling along similar routes so they can coordinate a shared journey.
-        </p>
-        <div className="mt-6 flex justify-center gap-3">
-          <Link to="/register" className="rounded-md bg-brand-600 px-5 py-3 font-medium text-white hover:bg-brand-700">
-            Get started
-          </Link>
-          <Link to="/how-it-works" className="rounded-md border border-slate-300 bg-white px-5 py-3 font-medium hover:bg-slate-100">
-            How it works
-          </Link>
-        </div>
-      </section>
+      <HomeHero />
 
       <section aria-label="Features" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {features.map(({ icon: Icon, title, text }) => (
