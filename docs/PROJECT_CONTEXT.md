@@ -51,6 +51,7 @@ First time on a machine: `npm run install:all`, then copy `server/.env.example` 
 **Server**
 - App skeleton: env validation (zod), Mongo connection, pino logging with redaction, helmet, CORS allowlist, consistent error envelope `{ success:false, error:{code,message,details?} }`, `GET /api/health`.
 - `POST /api/auth/register`: validates input, normalises email (lowercase) and Indian phone (stored as `+91XXXXXXXXXX`), bcrypt (12 rounds), password 8-72 chars with a letter and a number, duplicate email/phone -> 409 (race-safe via unique indexes), ignores privileged fields, sets an HttpOnly SameSite=Lax JWT cookie (`pool_in_token`, 7 days), rate limit 10/hour/IP. Optional `phoneProof` marks the phone verified.
+- `POST /api/auth/login`: generic `INVALID_CREDENTIALS` for wrong password or unknown email (dummy bcrypt compare to even out timing), per-account lockout after 5 failed attempts for 15 min (atomic counter, 429 `ACCOUNT_TEMPORARILY_LOCKED`; this reveals that the account exists, accepted trade-off), suspension revealed only after the correct password, per-IP limit 30/15 min. `POST /api/auth/logout` clears the cookie (tokens are stateless, so it ends the session on that browser only; there is no server-side revocation yet).
 - `GET /api/auth/me` and `requireAuth` middleware (cookie JWT, reloads the user each request, blocks suspended accounts).
 - Phone OTP (6 digits, 5 min expiry, 5 attempts spent atomically, 60 s resend cooldown, 5 sends/hour, single-use, newest code only, stored as a keyed hash, SMS failure leaves no usable code):
   - signed-in: `POST /api/auth/phone/send-otp`, `/verify-otp` (sets `phoneVerifiedAt`)
@@ -62,16 +63,16 @@ First time on a machine: `npm run install:all`, then copy `server/.env.example` 
 **Client**
 - Layout with skip link, landing, how-it-works, safety pages, 404, API health indicator.
 - Register page: react-hook-form + zod, server error mapping, and a verify-now / verify-later box under the phone field (number locks once verified, Enter in the code box does not submit the form).
-- `/verify-phone` page for verifying later (needs a signed-in cookie).
-- Login page is still a placeholder.
+- `/verify-phone` page for verifying later.
+- Login page (redirects back to the page the user originally asked for, same-site paths only), navbar that switches between Log in / Sign up and Dashboard / name / Log out, `RequireAuth` route guard for `/dashboard` and `/verify-phone`, basic dashboard with a "phone not verified" banner. Logout navigates home first and clears the cached user only after arriving (otherwise the protected page bounces to /login).
 
-**Tests:** 74 server, 20 client, all passing at last run.
+**Tests:** 90 server, 33 client, all passing at last run.
 
 ## Known limits and gotchas
 
 - **No real SMS yet.** Needs a provider account. Options discussed: Twilio trial (free, verified numbers only), or MSG91 / 2Factor / Fast2SMS (India, needs KYC + DLT template). Not chosen. Credentials must only go in `server/.env`.
 - **Add CAPTCHA** on the signup "Send code" step before going public (SMS-pumping risk).
-- **No login/logout yet**, so once the registration cookie expires the user cannot get back in. `/verify-phone` shows "sign in" for logged-out users.
+- No "forgot password" / password reset yet, no email verification, no server-side session revocation (logout-everywhere).
 - **Atlas SRV DNS fails in Node on the dev machine** (`querySrv EBADRESP`, even with Google DNS) while Windows resolves it. `MONGODB_URI` in `server/.env` therefore uses Atlas's standard (non-SRV) `mongodb://host1,host2,host3/...` form. A friend on a different network may be fine with the SRV string, or may need the same fix.
 - npm blocked install scripts for `mongodb-memory-server` and `esbuild` (warning only, nothing broke). First test run downloads a MongoDB binary and can time out once; re-run.
 - `@hookform/resolvers` must stay on v5 (v6 conflicts with peers). Client uses `useWatch`, not `watch`, to keep the React Compiler lint clean.
@@ -89,9 +90,9 @@ First time on a machine: `npm run install:all`, then copy `server/.env.example` 
 
 ## Next steps (suggested order)
 
-1. Login, logout, navbar showing the signed-in user, protected routes, auth context.
-2. Open a PR for `feat/auth` and have the friend review.
-3. Choose and wire a real SMS provider (and CAPTCHA).
+1. Open a PR for `feat/auth` and have the friend review.
+2. Choose and wire a real SMS provider (and CAPTCHA).
+3. Profile page (edit name/gender; phone change must clear `phoneVerifiedAt`), password reset.
 4. Phase 2: vehicles and the three ride types (seat + luggage fields, ride state machine, listing/search).
 5. Phase 3 matching engine, then negotiation, Pool Room, safety/location, hardening (see PRD section 20).
 

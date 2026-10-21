@@ -1,6 +1,6 @@
 import type { RequestHandler } from 'express';
 import { User, toPublicUser } from '../models/User.js';
-import { registerUser } from '../services/auth/authService.js';
+import { loginUser, registerUser } from '../services/auth/authService.js';
 import {
   sendPhoneOtp,
   sendSignupOtp,
@@ -15,7 +15,7 @@ import {
   signToken,
   type TokenConfig,
 } from '../utils/token.js';
-import type { RegisterInput } from '../validators/auth.js';
+import type { LoginInput, RegisterInput } from '../validators/auth.js';
 import type { SignupOtpVerifyInput, VerifyOtpInput } from '../validators/phone.js';
 
 export function makeAuthController(cfg: TokenConfig, otp: OtpDeps) {
@@ -23,6 +23,19 @@ export function makeAuthController(cfg: TokenConfig, otp: OtpDeps) {
     const user = await registerUser(req.body as RegisterInput, cfg.JWT_SECRET);
     res.cookie(AUTH_COOKIE, signToken(user.id, cfg), authCookieOptions(cfg));
     res.status(201).json({ success: true, data: { user: toPublicUser(user) } });
+  };
+
+  const login: RequestHandler = async (req, res) => {
+    const user = await loginUser(req.body as LoginInput);
+    res.cookie(AUTH_COOKIE, signToken(user.id, cfg), authCookieOptions(cfg));
+    res.json({ success: true, data: { user: toPublicUser(user) } });
+  };
+
+  // Clears the browser cookie. Tokens are stateless, so this ends the session on this browser only.
+  const logout: RequestHandler = (_req, res) => {
+    const { maxAge: _maxAge, ...options } = authCookieOptions(cfg);
+    res.clearCookie(AUTH_COOKIE, options);
+    res.json({ success: true, data: {} });
   };
 
   const me: RequestHandler = (req, res) => {
@@ -55,6 +68,8 @@ export function makeAuthController(cfg: TokenConfig, otp: OtpDeps) {
 
   return {
     register,
+    login,
+    logout,
     me,
     sendOtp,
     verifyOtp,

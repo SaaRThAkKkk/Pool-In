@@ -39,3 +39,11 @@ export const registerSchema = z.object({
 });
 
 export type RegisterInput = z.infer<typeof registerSchema>;
+
+// Login does not re-apply password rules (old passwords must keep working); it only bounds the input.
+export const loginSchema = z.object({
+  email: z.string().trim().toLowerCase().min(1, 'Email is required').max(254),
+  password: z.string().min(1, 'Password is required').max(128),
+});
+
+export type LoginInput = z.infer<typeof loginSchema>;

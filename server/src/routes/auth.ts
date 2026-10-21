@@ -3,7 +3,7 @@ import { makeAuthController } from '../controllers/authController.js';
 import { validateBody } from '../middleware/validate.js';
 import { makeLimiter } from '../middleware/rateLimit.js';
 import { makeRequireAuth } from '../middleware/requireAuth.js';
-import { registerSchema } from '../validators/auth.js';
+import { loginSchema, registerSchema } from '../validators/auth.js';
 import { signupOtpSendSchema, signupOtpVerifySchema, verifyOtpSchema } from '../validators/phone.js';
 import type { TokenConfig } from '../utils/token.js';
 import type { SmsProvider } from '../services/sms/index.js';
@@ -27,6 +27,15 @@ export function createAuthRouter({ token, rateLimitEnabled, sms }: AuthRouterOpt
     validateBody(registerSchema),
     controller.register,
   );
+
+  // Per-account lockout lives in the service; this per-IP limiter is the outer layer.
+  router.post(
+    '/login',
+    makeLimiter(rateLimitEnabled, { windowMs: 15 * 60 * 1000, limit: 30 }),
+    validateBody(loginSchema),
+    controller.login,
+  );
+  router.post('/logout', controller.logout);
 
   router.get('/me', requireAuth, controller.me);
 

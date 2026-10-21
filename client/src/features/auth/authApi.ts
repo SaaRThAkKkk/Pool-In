@@ -18,6 +18,14 @@ export interface SendOtpResult {
   resendAvailableAt: string
 }
 
+export function loginUser(input: { email: string; password: string }) {
+  return api<{ user: PublicUser }>('/auth/login', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function logoutUser() {
+  return api<Record<string, never>>('/auth/logout', { method: 'POST' })
+}
+
 export function sendSignupOtp(phone: string) {
   return api<SendOtpResult>('/auth/phone/signup-otp/send', { method: 'POST', body: JSON.stringify({ phone }) })
 }

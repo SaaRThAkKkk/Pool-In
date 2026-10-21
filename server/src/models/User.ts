@@ -21,6 +21,9 @@ const userSchema = new Schema(
     profileImage: { type: String },
     // Set only after the user proves control of `phone` with an OTP. Must be cleared if the phone ever changes.
     phoneVerifiedAt: { type: Date },
+    // Login brute-force protection (see config/loginPolicy.ts).
+    failedLoginAttempts: { type: Number, default: 0 },
+    lockedUntil: { type: Date },
   },
   { timestamps: true },
 );

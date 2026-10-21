@@ -3,10 +3,12 @@ import { Layout } from '../components/Layout'
 import { LandingPage } from '../pages/LandingPage'
 import { HowItWorksPage } from '../pages/HowItWorksPage'
 import { SafetyPage } from '../pages/SafetyPage'
-import { RegisterPage } from '../features/auth/RegisterPage'
-import { VerifyPhonePage } from '../features/auth/VerifyPhonePage'
-import { PlaceholderPage } from '../pages/PlaceholderPage'
+import { DashboardPage } from '../pages/DashboardPage'
 import { NotFoundPage } from '../pages/NotFoundPage'
+import { LoginPage } from '../features/auth/LoginPage'
+import { RegisterPage } from '../features/auth/RegisterPage'
+import { RequireAuth } from '../features/auth/RequireAuth'
+import { VerifyPhonePage } from '../features/auth/VerifyPhonePage'
 
 export function AppRoutes() {
   return (
@@ -15,9 +17,14 @@ export function AppRoutes() {
         <Route index element={<LandingPage />} />
         <Route path="how-it-works" element={<HowItWorksPage />} />
         <Route path="safety" element={<SafetyPage />} />
-        <Route path="login" element={<PlaceholderPage title="Log in" />} />
+        <Route path="login" element={<LoginPage />} />
         <Route path="register" element={<RegisterPage />} />
-        <Route path="verify-phone" element={<VerifyPhonePage />} />
+
+        <Route element={<RequireAuth />}>
+          <Route path="dashboard" element={<DashboardPage />} />
+          <Route path="verify-phone" element={<VerifyPhonePage />} />
+        </Route>
+
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>
