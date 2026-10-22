@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, Plus } from 'lucide-react'
 import { JoinPoolPanel } from '../pools/JoinPoolPanel'
 import { useMe } from '../auth/useMe'
 import { LiveMap } from './LiveMap'
@@ -15,6 +15,12 @@ export function HomeHero() {
   const [recenterSignal, setRecenterSignal] = useState(0)
 
   const signedIn = Boolean(me.data)
+  const createContent = (
+    <>
+      <Plus aria-hidden className="h-4 w-4" />
+      Create a pool
+    </>
+  )
   const joinContent = (
     <>
       Join a pool
@@ -64,20 +70,26 @@ export function HomeHero() {
           ) : (
             <div className="animate-fade-up space-y-2" style={{ animationDelay: '300ms' }}>
               <div className="flex flex-wrap gap-3">
+                {/* The route guard sends signed-out visitors to log in and then back here. */}
+                <Link to="/pools/new" className="btn-primary">
+                  {createContent}
+                </Link>
                 {signedIn ? (
-                  <button type="button" onClick={() => setPanelOpen(true)} className="btn-primary group">
+                  <button type="button" onClick={() => setPanelOpen(true)} className="btn-secondary group">
                     {joinContent}
                   </button>
                 ) : (
-                  <Link to="/login" state={{ from: '/' }} className="btn-primary group">
+                  <Link to="/login" state={{ from: '/' }} className="btn-secondary group">
                     {joinContent}
                   </Link>
                 )}
-                <Link to="/how-it-works" className="btn-secondary">
+              </div>
+              <p className="text-xs text-slate-500">
+                {!signedIn && !me.isPending && "You'll be asked to log in first. "}
+                <Link to="/how-it-works" className="underline underline-offset-2 hover:text-slate-700">
                   How it works
                 </Link>
-              </div>
-              {!signedIn && !me.isPending && <p className="text-xs text-slate-500">You'll be asked to log in first.</p>}
+              </p>
             </div>
           )}
         </div>

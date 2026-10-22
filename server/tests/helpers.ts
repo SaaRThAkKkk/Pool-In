@@ -28,8 +28,11 @@ export class CapturingSms implements SmsProvider {
   }
 }
 
-export function makeApp(opts: { rateLimitEnabled?: boolean; sms?: SmsProvider } = {}) {
-  return createApp(testConfig, { sms: opts.sms ?? new CapturingSms(), rateLimitEnabled: opts.rateLimitEnabled });
+export function makeApp(opts: { rateLimitEnabled?: boolean; sms?: SmsProvider; config?: Partial<AppConfig> } = {}) {
+  return createApp(
+    { ...testConfig, ...opts.config },
+    { sms: opts.sms ?? new CapturingSms(), rateLimitEnabled: opts.rateLimitEnabled },
+  );
 }
 
 let mongod: MongoMemoryServer | undefined;

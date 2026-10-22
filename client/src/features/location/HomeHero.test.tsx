@@ -104,6 +104,17 @@ describe('HomeHero', () => {
     expect(await screen.findByText(/login page, from: \//i)).toBeInTheDocument()
   })
 
+  it.each([
+    ['signed-out', false],
+    ['signed-in', true],
+  ])('links %s visitors to the create page (the route guard handles login)', async (_label, signedIn) => {
+    stubSession(signedIn)
+    stubGeolocation('fix')
+    renderHero()
+
+    expect(await screen.findByRole('link', { name: /create a pool/i })).toHaveAttribute('href', '/pools/new')
+  })
+
   it('opens the pool form for a signed-in user, starting at their current location', async () => {
     stubSession(true)
     stubGeolocation('fix')

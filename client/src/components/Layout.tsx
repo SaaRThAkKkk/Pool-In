@@ -39,6 +39,9 @@ function AuthLinks() {
   if (me.data) {
     return (
       <>
+        <NavLink to="/pools" end className="nav-link">
+          My pools
+        </NavLink>
         <NavLink to="/dashboard" className="nav-link">
           Dashboard
         </NavLink>

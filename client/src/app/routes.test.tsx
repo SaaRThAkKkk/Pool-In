@@ -78,9 +78,16 @@ describe('navigation and protected routes', () => {
     renderAt('/dashboard')
     expect(await screen.findByRole('heading', { name: /welcome, asha verma/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /log out/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /my pools/i })).toHaveAttribute('href', '/pools')
     expect(screen.getByText(/phone number is not verified/i)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /verify now/i })).toHaveAttribute('href', '/verify-phone')
     expect(screen.queryByRole('link', { name: /sign up/i })).not.toBeInTheDocument()
+  })
+
+  it('sends a signed-out visitor from the create-pool page to log in', async () => {
+    mockBackend({ user: null })
+    renderAt('/pools/new')
+    expect(await screen.findByRole('heading', { name: /^log in$/i })).toBeInTheDocument()
   })
 
   it('redirects a signed-in user away from the login page', async () => {

@@ -69,7 +69,12 @@ First time on a machine: `npm run install:all`, then copy `server/.env.example` 
 - Home hero (`features/location/HomeHero.tsx`): a live Leaflet/OpenStreetMap map is the hero background. `useLiveLocation` follows the browser position with `watchPosition` (asks on page load via the browser prompt; stops on unmount). The map centres on the first fix only (later updates just move the marker); "Re-centre map" button; handles denied / unavailable / error states with a retry. The position stays in the browser and is not sent to the server.
 - "Join a pool" on the hero: signed-out users are sent to login (and returned to `/`); signed-in users get a placeholder form (start = current location, read-only, or typed text if there is no fix; destination text; departure; seats). **Submitting only shows "pool matching isn't available yet" and sends/saves nothing.** The real pool details (route, luggage, preferences, price) and place search/geocoding are still to build.
 
-**Tests:** 90 server, 49 client, all passing at last run. The Leaflet map itself is mocked in jsdom tests, so it has only been checked by build, not rendered in a test.
+- **Create a pool** (owner-listed private vehicle, ride type `OWNER_VEHICLE`): hero button and `/pools/new` page (route guard handles login). Fields: start (live location by default, or typed), destination (text), departure, vehicle (type + make + model), seats, fare per passenger in INR, negotiable checkbox. `/pools` ("My pools", also in the navbar) lists the owner's pools with loading/empty/error states.
+  - Server: `POST /api/rides`, `GET /api/rides/mine`, `GET /api/rides/:id` (owner only; someone else's or a malformed id is a 404). `Ride` model follows PRD 13.3 (status `OPEN`, `passengerCapacity`/`availableSeats`/`currentPassengerCount`, `pricingMode` FIXED|NEGOTIABLE, `askingPrice`, `currency`, `priceBasis` PER_PASSENGER). Server-controlled fields are never read from the request.
+  - Rules (`config/rides.ts`, `config/vehicles.ts`): departure 10 min to 90 days ahead; seats 1..max for the vehicle type (hatchback 4, sedan 4, SUV 6, MUV 7, other 8, excluding the driver); fare 0..100,000 with at most 2 decimals; start and end must differ (label, or under 200 m apart if both have coordinates); max 10 active pools per owner; duplicate route+time per owner rejected atomically (partial unique index on `dedupeKey`); 30 creations/hour/IP.
+  - The verified-phone guard is applied to creating a pool (still off by default).
+
+**Tests:** 133 server, 74 client, all passing at last run. The Leaflet map itself is mocked in jsdom tests, so it has only been checked by build, not rendered in a test.
 
 ## Known limits and gotchas
 
@@ -88,7 +93,9 @@ First time on a machine: `npm run install:all`, then copy `server/.env.example` 
 
 - Phone is required at signup (Indian numbers only for now). Gender is optional and only used for women-only matching later; it is self-declared, not verified.
 - `verificationStatus` stays `UNVERIFIED`: phone verification only proves the number receives messages, not identity.
-- Paid private-vehicle rides stay behind a feature flag, off, until legal eligibility is defined.
+- Fares on owner pools are presented as a **cost-sharing contribution per passenger** (form text says Pool-In is not a taxi service). `ENABLE_PAID_PRIVATE_RIDES` is reserved for any future commercial/for-profit listing mode and is not enforced anywhere yet. Legal review of cost-sharing rules is still required before launch (PRD 17.4).
+- A pool stores its vehicle as a snapshot (category/make/model) for now; a saved-vehicles collection with capacity verification comes later. Registration numbers are deliberately not collected.
+- Destination (and a typed start) are plain text without coordinates until place search/geocoding is built; matching will need coordinates, so that comes before the matching engine. A live-location start saves its coordinates and the label `Current location`.
 - Payments, identity verification and external cab-booking integrations are out of scope for the MVP.
 - If adding "change phone number", it must clear `phoneVerifiedAt`.
 
@@ -97,7 +104,9 @@ First time on a machine: `npm run install:all`, then copy `server/.env.example` 
 1. Open a PR for `feat/auth` and have the friend review.
 2. Choose and wire a real SMS provider (and CAPTCHA).
 3. Profile page (edit name/gender; phone change must clear `phoneVerifiedAt`), password reset.
-4. Phase 2: vehicles and the three ride types (seat + luggage fields, ride state machine, listing/search).
+4. **Join a pool** (waiting for the user to say go): search/browse pools, join requests, negotiation. Do not start it before they ask. The hero's Join button and `JoinPoolPanel` are still a placeholder that sends nothing.
+5. Then: place search + geocoding, cancel/edit a pool, luggage capacity, saved vehicles, the other two ride types (booked cab, passenger group).
+6. Phase 2 (original plan):
 5. Phase 3 matching engine, then negotiation, Pool Room, safety/location, hardening (see PRD section 20).
 
 Open questions still to settle: pilot city, whether the first build covers the whole PRD or Phases 1-5, and when to apply the verified-phone guard to booking routes.
