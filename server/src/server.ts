@@ -6,6 +6,7 @@ import { createApp } from './app.js';
 import { createSmsProvider } from './services/sms/index.js';
 import { CachedMapsProvider } from './services/maps/cachedMapsProvider.js';
 import { OpenStreetMapProvider } from './services/maps/openStreetMapProvider.js';
+import { UnimplementedMatcher } from './services/pools/matching.js';
 import { createSocketServer } from './sockets/index.js';
 import { logger } from './utils/logger.js';
 
@@ -19,7 +20,7 @@ async function main() {
   const maps = new CachedMapsProvider(
     new OpenStreetMapProvider({ photonUrl: env.PHOTON_URL, osrmUrl: env.OSRM_URL, userAgent: env.MAPS_USER_AGENT }),
   );
-  const app = createApp(env, { sms: createSmsProvider(env), maps });
+  const app = createApp(env, { sms: createSmsProvider(env), maps, matcher: new UnimplementedMatcher() });
   const server = http.createServer(app);
   createSocketServer(server, env);
 

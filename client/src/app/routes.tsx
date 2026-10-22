@@ -9,7 +9,7 @@ import { LoginPage } from '../features/auth/LoginPage'
 import { RegisterPage } from '../features/auth/RegisterPage'
 import { RequireAuth } from '../features/auth/RequireAuth'
 import { VerifyPhonePage } from '../features/auth/VerifyPhonePage'
-import { CreatePoolPage } from '../features/pools/CreatePoolPage'
+import { PoolInPage } from '../features/pools/PoolInPage'
 import { MyPoolsPage } from '../features/pools/MyPoolsPage'
 
 export function AppRoutes() {
@@ -26,7 +26,7 @@ export function AppRoutes() {
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="verify-phone" element={<VerifyPhonePage />} />
           <Route path="pools" element={<MyPoolsPage />} />
-          <Route path="pools/new" element={<CreatePoolPage />} />
+          <Route path="pool-in" element={<PoolInPage />} />
         </Route>
 
         <Route path="*" element={<NotFoundPage />} />

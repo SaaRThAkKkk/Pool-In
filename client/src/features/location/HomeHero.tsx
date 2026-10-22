@@ -1,32 +1,13 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRight, Plus } from 'lucide-react'
-import { JoinPoolPanel } from '../pools/JoinPoolPanel'
-import { useMe } from '../auth/useMe'
 import { LiveMap } from './LiveMap'
 import { LocationStatus } from './LocationStatus'
 import { useLiveLocation } from './useLiveLocation'
 
-// Home hero: the live map is the background, with an overlay card on top.
+// Home hero: the live map is the background, with an overlay card on top and one big Pool In button.
 export function HomeHero() {
-  const me = useMe()
   const { position, status, retry } = useLiveLocation()
-  const [panelOpen, setPanelOpen] = useState(false)
   const [recenterSignal, setRecenterSignal] = useState(0)
-
-  const signedIn = Boolean(me.data)
-  const createContent = (
-    <>
-      <Plus aria-hidden className="h-4 w-4" />
-      Create a pool
-    </>
-  )
-  const joinContent = (
-    <>
-      Join a pool
-      <ArrowRight aria-hidden className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" />
-    </>
-  )
 
   return (
     <section
@@ -41,7 +22,7 @@ export function HomeHero() {
 
       {/* Wrapper ignores the pointer so the map stays draggable around the card. */}
       <div className="pointer-events-none relative z-[1000] flex h-full items-start p-4 sm:items-center sm:p-8">
-        <div className="pointer-events-auto w-full max-w-md animate-fade-up space-y-4 rounded-2xl bg-white/90 p-5 shadow-2xl ring-1 ring-white/70 backdrop-blur-md sm:p-6">
+        <div className="pointer-events-auto w-full max-w-md animate-fade-up space-y-5 rounded-2xl bg-white/90 p-5 shadow-2xl ring-1 ring-white/70 backdrop-blur-md sm:p-6">
           <div className="animate-fade-up" style={{ animationDelay: '100ms' }}>
             <h1 className="text-3xl font-extrabold tracking-tight sm:text-4xl">
               Share the ride.{' '}
@@ -63,35 +44,30 @@ export function HomeHero() {
             />
           </div>
 
-          {panelOpen && signedIn ? (
-            <div className="animate-pop-in">
-              <JoinPoolPanel position={position} onClose={() => setPanelOpen(false)} />
-            </div>
-          ) : (
-            <div className="animate-fade-up space-y-2" style={{ animationDelay: '300ms' }}>
-              <div className="flex flex-wrap gap-3">
-                {/* The route guard sends signed-out visitors to log in and then back here. */}
-                <Link to="/pools/new" className="btn-primary">
-                  {createContent}
-                </Link>
-                {signedIn ? (
-                  <button type="button" onClick={() => setPanelOpen(true)} className="btn-secondary group">
-                    {joinContent}
-                  </button>
-                ) : (
-                  <Link to="/login" state={{ from: '/' }} className="btn-secondary group">
-                    {joinContent}
-                  </Link>
-                )}
-              </div>
-              <p className="text-xs text-slate-500">
-                {!signedIn && !me.isPending && "You'll be asked to log in first. "}
-                <Link to="/how-it-works" className="underline underline-offset-2 hover:text-slate-700">
-                  How it works
-                </Link>
-              </p>
-            </div>
-          )}
+          {/* The one way in. The route guard sends signed-out visitors to log in and then back to /pool-in. */}
+          <div className="animate-fade-up flex flex-col items-center gap-2 pt-1" style={{ animationDelay: '300ms' }}>
+            <Link
+              to="/pool-in"
+              className="group relative inline-flex items-center gap-3 rounded-full bg-linear-to-r from-brand-600 to-indigo-600 py-2.5 pl-2.5 pr-8 text-xl font-extrabold text-white shadow-xl shadow-brand-500/35 transition duration-300 hover:-translate-y-1 hover:scale-105 hover:shadow-2xl hover:shadow-brand-500/45 active:translate-y-0 active:scale-95"
+            >
+              {/* Soft pulsing ring that draws the eye to the button. */}
+              <span aria-hidden className="absolute inset-0 -z-10 animate-ping rounded-full bg-brand-500/40 [animation-duration:2.4s]" />
+              <img
+                src="/favicon-192.png"
+                alt=""
+                width={48}
+                height={48}
+                className="h-12 w-12 rounded-full object-cover ring-2 ring-white/70 transition duration-300 group-hover:rotate-12"
+              />
+              Pool In
+            </Link>
+            <p className="text-xs text-slate-500">
+              Offer seats or share a cab.{' '}
+              <Link to="/how-it-works" className="underline underline-offset-2 hover:text-slate-700">
+                How it works
+              </Link>
+            </p>
+          </div>
         </div>
       </div>
     </section>

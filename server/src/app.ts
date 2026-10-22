@@ -9,6 +9,7 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import type { Env } from './config/env.js';
 import type { SmsProvider } from './services/sms/index.js';
 import type { MapsProvider } from './services/maps/types.js';
+import type { PoolMatcher } from './services/pools/matching.js';
 
 export type AppConfig = Pick<Env, 'CLIENT_ORIGIN' | 'JWT_SECRET' | 'JWT_EXPIRES_DAYS' | 'NODE_ENV'> &
   Partial<Pick<Env, 'REQUIRE_VERIFIED_PHONE_FOR_BOOKING'>>;
@@ -16,6 +17,7 @@ export type AppConfig = Pick<Env, 'CLIENT_ORIGIN' | 'JWT_SECRET' | 'JWT_EXPIRES_
 export interface AppOptions {
   sms: SmsProvider;
   maps: MapsProvider;
+  matcher: PoolMatcher;
   rateLimitEnabled?: boolean;
 }
 
@@ -41,6 +43,7 @@ export function createApp(env: AppConfig, opts: AppOptions): Express {
       rateLimitEnabled: opts.rateLimitEnabled ?? env.NODE_ENV !== 'test',
       sms: opts.sms,
       maps: opts.maps,
+      matcher: opts.matcher,
       requireVerifiedPhoneForBooking: env.REQUIRE_VERIFIED_PHONE_FOR_BOOKING ?? false,
     }),
   );

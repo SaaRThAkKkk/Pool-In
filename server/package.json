@@ -10,7 +10,6 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
-    "migrate:rides": "tsx src/scripts/migrate-rides.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

@@ -1,7 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { HomeHero } from './HomeHero'
 
@@ -11,23 +10,6 @@ vi.mock('./LiveMap', () => ({
     <div data-testid="map">{position ? `map at ${position.lat}` : 'map default'}</div>
   ),
 }))
-
-const person = { id: '1', name: 'Asha', email: 'a@x.com', phone: '+919876543210', phoneVerified: false }
-const ok = (data: unknown) => new Response(JSON.stringify({ success: true, data }))
-const unauthorized = () =>
-  new Response(JSON.stringify({ success: false, error: { code: 'UNAUTHORIZED', message: 'Authentication required' } }), {
-    status: 401,
-  })
-
-function stubSession(signedIn: boolean) {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (url: string) => {
-      if (url === '/api/auth/me') return signedIn ? ok({ user: person }) : unauthorized()
-      throw new Error(`unexpected request ${url}`)
-    }),
-  )
-}
 
 function stubGeolocation(mode: 'fix' | 'denied') {
   const watchPosition = vi.fn((success: PositionCallback, error: PositionErrorCallback) => {
@@ -44,21 +26,14 @@ function stubGeolocation(mode: 'fix' | 'denied') {
   })
 }
 
-function LoginProbe() {
-  const location = useLocation()
-  return <p>login page, from: {String((location.state as { from?: string } | null)?.from)}</p>
-}
-
 function renderHero() {
   return render(
-    <QueryClientProvider client={new QueryClient()}>
-      <MemoryRouter>
-        <Routes>
-          <Route path="/" element={<HomeHero />} />
-          <Route path="/login" element={<LoginProbe />} />
-        </Routes>
-      </MemoryRouter>
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <Routes>
+        <Route path="/" element={<HomeHero />} />
+        <Route path="/pool-in" element={<p>pool in page</p>} />
+      </Routes>
+    </MemoryRouter>,
   )
 }
 
@@ -68,61 +43,58 @@ afterEach(() => {
 })
 
 describe('HomeHero', () => {
-  it('puts the live map behind the hero and centres it on the user', async () => {
-    stubSession(false)
+  it('puts the live map behind the hero and centres it on the user', () => {
     stubGeolocation('fix')
     renderHero()
 
-    expect(await screen.findByText('map at 12.9716')).toBeInTheDocument()
+    expect(screen.getByText('map at 12.9716')).toBeInTheDocument()
     expect(screen.getByText(/using your current location/i)).toBeInTheDocument()
     expect(screen.getByText(/stays in your browser/i)).toBeInTheDocument()
   })
 
-  it('explains how to recover when location is blocked, and the map still renders', async () => {
-    stubSession(false)
+  it('explains how to recover when location is blocked, and the map still renders', () => {
     stubGeolocation('denied')
     renderHero()
 
-    expect(await screen.findByText(/location access is blocked/i)).toBeInTheDocument()
+    expect(screen.getByText(/location access is blocked/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument()
     expect(screen.getByText('map default')).toBeInTheDocument()
   })
 
-  it('works when the browser has no geolocation at all', async () => {
-    stubSession(false)
+  it('works when the browser has no geolocation at all', () => {
     renderHero()
-    expect(await screen.findByText(/doesn't support location/i)).toBeInTheDocument()
+    expect(screen.getByText(/doesn't support location/i)).toBeInTheDocument()
+  })
+})
+
+describe('HomeHero: the single Pool In button', () => {
+  it('is the only way in: no separate create or join buttons', () => {
+    stubGeolocation('fix')
+    renderHero()
+
+    expect(screen.getByRole('link', { name: /pool in/i })).toHaveAttribute('href', '/pool-in')
+    expect(screen.queryByRole('link', { name: /create a pool/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /join a pool/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /join a pool/i })).not.toBeInTheDocument()
   })
 
-  it('sends a signed-out visitor to log in, and remembers to come back', async () => {
-    stubSession(false)
+  it('shows the app icon in the button', () => {
+    stubGeolocation('fix')
+    renderHero()
+
+    const button = screen.getByRole('link', { name: /pool in/i })
+    const icon = button.querySelector('img')
+    expect(icon).not.toBeNull()
+    expect(icon).toHaveAttribute('src', '/favicon-192.png')
+    expect(icon).toHaveAttribute('alt', '') // decorative: the label already says Pool In
+  })
+
+  it('takes the user to the Pool In page', async () => {
     stubGeolocation('fix')
     const u = userEvent.setup()
     renderHero()
 
-    await u.click(await screen.findByRole('link', { name: /join a pool/i }))
-    expect(await screen.findByText(/login page, from: \//i)).toBeInTheDocument()
-  })
-
-  it.each([
-    ['signed-out', false],
-    ['signed-in', true],
-  ])('links %s visitors to the create page (the route guard handles login)', async (_label, signedIn) => {
-    stubSession(signedIn)
-    stubGeolocation('fix')
-    renderHero()
-
-    expect(await screen.findByRole('link', { name: /create a pool/i })).toHaveAttribute('href', '/pools/new')
-  })
-
-  it('opens the pool form for a signed-in user, starting at their current location', async () => {
-    stubSession(true)
-    stubGeolocation('fix')
-    const u = userEvent.setup()
-    renderHero()
-
-    await u.click(await screen.findByRole('button', { name: /join a pool/i }))
-    expect(screen.getByRole('form', { name: /join a pool/i })).toBeInTheDocument()
-    expect(screen.getByLabelText(/^start$/i)).toHaveValue('Current location (12.9716, 77.5946)')
+    await u.click(screen.getByRole('link', { name: /pool in/i }))
+    expect(screen.getByText('pool in page')).toBeInTheDocument()
   })
 })

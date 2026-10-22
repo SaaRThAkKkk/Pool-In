@@ -84,10 +84,22 @@ describe('navigation and protected routes', () => {
     expect(screen.queryByRole('link', { name: /sign up/i })).not.toBeInTheDocument()
   })
 
-  it('sends a signed-out visitor from the create-pool page to log in', async () => {
+  it('sends a signed-out visitor from the Pool In page to log in', async () => {
     mockBackend({ user: null })
-    renderAt('/pools/new')
+    renderAt('/pool-in')
     expect(await screen.findByRole('heading', { name: /^log in$/i })).toBeInTheDocument()
+  })
+
+  it('sends a signed-out visitor from My pools to log in', async () => {
+    mockBackend({ user: null })
+    renderAt('/pools')
+    expect(await screen.findByRole('heading', { name: /^log in$/i })).toBeInTheDocument()
+  })
+
+  it('lets a signed-in user open the Pool In page', async () => {
+    mockBackend({ user: person })
+    renderAt('/pool-in')
+    expect(await screen.findByRole('heading', { name: 'Pool In' })).toBeInTheDocument()
   })
 
   it('redirects a signed-in user away from the login page', async () => {

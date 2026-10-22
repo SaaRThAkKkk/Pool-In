@@ -5,6 +5,13 @@ import { poolsDb } from '../src/models/poolsDb.js';
 import type { SmsProvider } from '../src/services/sms/index.js';
 import type { MapsProvider, Place, RouteResult } from '../src/services/maps/types.js';
 import type { LatLng } from '../src/utils/geo.js';
+import {
+  UnimplementedMatcher,
+  type MatchOutcome,
+  type PoolMatch,
+  type PoolMatcher,
+  type PoolSearchCriteria,
+} from '../src/services/pools/matching.js';
 
 export const testConfig: AppConfig = {
   CLIENT_ORIGIN: 'http://localhost:5173',
@@ -61,14 +68,32 @@ export class FakeMaps implements MapsProvider {
   }
 }
 
+// Records what it was asked to search for, and returns whatever matches the test scripts.
+export class FakeMatcher implements PoolMatcher {
+  calls: PoolSearchCriteria[] = [];
+  matches: PoolMatch[] = [];
+
+  async findMatches(criteria: PoolSearchCriteria): Promise<MatchOutcome> {
+    this.calls.push(criteria);
+    return { status: 'SEARCHED', sections: ['CAR_OWNER', 'CAB'], matches: this.matches };
+  }
+}
+
 export function makeApp(
-  opts: { rateLimitEnabled?: boolean; sms?: SmsProvider; maps?: MapsProvider; config?: Partial<AppConfig> } = {},
+  opts: {
+    rateLimitEnabled?: boolean;
+    sms?: SmsProvider;
+    maps?: MapsProvider;
+    matcher?: PoolMatcher;
+    config?: Partial<AppConfig>;
+  } = {},
 ) {
   return createApp(
     { ...testConfig, ...opts.config },
     {
       sms: opts.sms ?? new CapturingSms(),
       maps: opts.maps ?? new FakeMaps(),
+      matcher: opts.matcher ?? new UnimplementedMatcher(),
       rateLimitEnabled: opts.rateLimitEnabled,
     },
   );

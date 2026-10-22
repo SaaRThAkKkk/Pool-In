@@ -1,29 +1,31 @@
 import { Router, type RequestHandler } from 'express';
-import { makeRideController } from '../controllers/rideController.js';
+import { makePoolController } from '../controllers/poolController.js';
 import { makeLimiter } from '../middleware/rateLimit.js';
 import { validateBody, validateObjectIdParam } from '../middleware/validate.js';
-import { createRideSchema } from '../validators/rides.js';
+import type { PoolMatcher } from '../services/pools/matching.js';
+import { poolInSchema } from '../validators/pools.js';
 
-export interface RidesRouterOptions {
+export interface PoolsRouterOptions {
   requireAuth: RequestHandler;
   requireVerifiedPhone: RequestHandler;
+  matcher: PoolMatcher;
   rateLimitEnabled: boolean;
 }
 
-export function createRidesRouter({ requireAuth, requireVerifiedPhone, rateLimitEnabled }: RidesRouterOptions): Router {
+export function createPoolsRouter({ requireAuth, requireVerifiedPhone, matcher, rateLimitEnabled }: PoolsRouterOptions): Router {
   const router = Router();
-  const controller = makeRideController();
+  const controller = makePoolController(matcher);
 
   router.use(requireAuth);
 
-  // Listing a ride puts a driver in front of strangers, so it is covered by the verified-phone policy
+  // Pooling puts a person in front of strangers, so it is covered by the verified-phone policy
   // (currently switched off by REQUIRE_VERIFIED_PHONE_FOR_BOOKING=false).
   router.post(
     '/',
     requireVerifiedPhone,
     makeLimiter(rateLimitEnabled, { windowMs: 60 * 60 * 1000, limit: 30 }),
-    validateBody(createRideSchema),
-    controller.create,
+    validateBody(poolInSchema),
+    controller.poolIn,
   );
   router.get('/mine', controller.mine);
   router.get('/:id', validateObjectIdParam('id'), controller.getOne);
