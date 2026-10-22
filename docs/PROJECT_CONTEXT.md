@@ -74,7 +74,10 @@ First time on a machine: `npm run install:all`, then copy `server/.env.example` 
   - Rules (`config/rides.ts`, `config/vehicles.ts`): departure 10 min to 90 days ahead; seats 1..max for the vehicle type (hatchback 4, sedan 4, SUV 6, MUV 7, other 8, excluding the driver); fare 0..100,000 with at most 2 decimals; start and end must differ (label, or under 200 m apart if both have coordinates); max 10 active pools per owner; duplicate route+time per owner rejected atomically (partial unique index on `dedupeKey`); 30 creations/hour/IP.
   - The verified-phone guard is applied to creating a pool (still off by default).
 
-**Tests:** 133 server, 74 client, all passing at last run. The Leaflet map itself is mocked in jsdom tests, so it has only been checked by build, not rendered in a test.
+- **Place search and route preview** (maps layer, PRD 4.2): `MapsProvider` interface (`server/src/services/maps`) with an OpenStreetMap implementation (Photon for place search, OSRM for driving routes) wrapped in a TTL cache. `GET /api/maps/places?q=&lat=&lng=` (India only, ranked near the user, max 8 results, de-duplicated) and `GET /api/maps/route?fromLat=&fromLng=&toLat=&toLng=`; both need login and are rate limited. Upstream responses are validated; any failure becomes a 502 `MAPS_UNAVAILABLE` (route with no road: 422 `NO_ROUTE`). The browser never calls the map services directly. Verified against the live services (not only recorded samples).
+- Client: `PlaceAutocomplete` (ARIA combobox: 300 ms debounce, min 2 chars, bold matched letters, keyboard support, "my current location" first option, graceful outage message). The Create a pool page uses it for start and destination, shows `RoutePreviewMap` beside the form (sticky on desktop, above the form on phones): start/end pins and a pulsing blue route line (CSS `route-blink`, disabled under reduced motion), plus distance and time labelled as an estimate. Both ends must be picked from the list when search works, so every new pool has coordinates; if search is down, typed text is accepted and saved without coordinates. A live-location start is rounded to about 100 m and saved with the label `Current location`.
+
+**Tests:** 174 server, 102 client, all passing at last run. The Leaflet map itself is mocked in jsdom tests, so it has only been checked by build, not rendered in a test.
 
 ## Known limits and gotchas
 
@@ -85,6 +88,8 @@ First time on a machine: `npm run install:all`, then copy `server/.env.example` 
 - npm blocked install scripts for `mongodb-memory-server` and `esbuild` (warning only, nothing broke). First test run downloads a MongoDB binary and can time out once; re-run.
 - `@hookform/resolvers` must stay on v5 (v6 conflicts with peers). Client uses `useWatch`, not `watch`, to keep the React Compiler lint clean.
 - Terminal opened before installing Node needs a restart to find `npm`.
+- Place search (`photon.komoot.io`) and routing (`router.project-osrm.org`) use free public demo servers with fair-use limits: fine for development, not for real traffic. Set `PHOTON_URL`, `OSRM_URL`, `MAPS_USER_AGENT` (with a contact address) in `server/.env`, and move to self-hosted instances or a paid provider before launch. Place names are OpenStreetMap data, so small places can be missing or oddly labelled.
+- The Leaflet route map is mocked in jsdom tests, so the blinking line and pins have only been checked by build, not rendered in a test.
 - Map tiles come from the public OpenStreetMap tile server (fine for development, subject to its usage policy; switch to a tile provider before real traffic). Reverse geocoding (coordinates to an address) is not built; the start field shows coordinates.
 - Never paste connection strings or passwords in chat; edit `server/.env` directly.
 - Test-only: parallel supertest requests print a harmless Node MaxListeners warning.
@@ -95,7 +100,7 @@ First time on a machine: `npm run install:all`, then copy `server/.env.example` 
 - `verificationStatus` stays `UNVERIFIED`: phone verification only proves the number receives messages, not identity.
 - Fares on owner pools are presented as a **cost-sharing contribution per passenger** (form text says Pool-In is not a taxi service). `ENABLE_PAID_PRIVATE_RIDES` is reserved for any future commercial/for-profit listing mode and is not enforced anywhere yet. Legal review of cost-sharing rules is still required before launch (PRD 17.4).
 - A pool stores its vehicle as a snapshot (category/make/model) for now; a saved-vehicles collection with capacity verification comes later. Registration numbers are deliberately not collected.
-- Destination (and a typed start) are plain text without coordinates until place search/geocoding is built; matching will need coordinates, so that comes before the matching engine. A live-location start saves its coordinates and the label `Current location`.
+- Pools created while place search works always carry coordinates for both ends (matching needs them). Only the search-outage fallback saves text without coordinates; the API still accepts that, so the matching engine must skip or backfill such pools. The join-a-pool placeholder panel still uses plain text locations and should be rebuilt on `PlaceAutocomplete`.
 - Payments, identity verification and external cab-booking integrations are out of scope for the MVP.
 - If adding "change phone number", it must clear `phoneVerifiedAt`.
 
@@ -105,7 +110,7 @@ First time on a machine: `npm run install:all`, then copy `server/.env.example` 
 2. Choose and wire a real SMS provider (and CAPTCHA).
 3. Profile page (edit name/gender; phone change must clear `phoneVerifiedAt`), password reset.
 4. **Join a pool** (waiting for the user to say go): search/browse pools, join requests, negotiation. Do not start it before they ask. The hero's Join button and `JoinPoolPanel` are still a placeholder that sends nothing.
-5. Then: place search + geocoding, cancel/edit a pool, luggage capacity, saved vehicles, the other two ride types (booked cab, passenger group).
+5. Then: cancel/edit a pool, luggage capacity, saved vehicles, the other two ride types (booked cab, passenger group).
 6. Phase 2 (original plan):
 5. Phase 3 matching engine, then negotiation, Pool Room, safety/location, hardening (see PRD section 20).
 

@@ -123,6 +123,50 @@ body {
   }
 }
 
+/* Route preview: a blue line that pulses, with start and end pins. */
+.route-line {
+  animation: route-blink 1.4s ease-in-out infinite;
+}
+.route-glow {
+  animation: route-glow 1.4s ease-in-out infinite;
+}
+@keyframes route-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+@keyframes route-glow {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.05;
+  }
+}
+.route-pin-wrap {
+  background: transparent;
+  border: 0;
+}
+.route-pin {
+  display: block;
+  width: 22px;
+  height: 22px;
+  border-radius: 9999px;
+  border: 4px solid #ffffff;
+  box-shadow: 0 1px 6px rgb(0 0 0 / 0.4);
+}
+.route-pin-start {
+  background: #16a34a;
+}
+.route-pin-end {
+  background: #dc2626;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;

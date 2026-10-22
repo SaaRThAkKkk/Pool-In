@@ -2,6 +2,8 @@ import { MongoMemoryServer } from 'mongodb-memory-server';
 import mongoose from 'mongoose';
 import { createApp, type AppConfig } from '../src/app.js';
 import type { SmsProvider } from '../src/services/sms/index.js';
+import type { MapsProvider, Place, RouteResult } from '../src/services/maps/types.js';
+import type { LatLng } from '../src/utils/geo.js';
 
 export const testConfig: AppConfig = {
   CLIENT_ORIGIN: 'http://localhost:5173',
@@ -28,10 +30,46 @@ export class CapturingSms implements SmsProvider {
   }
 }
 
-export function makeApp(opts: { rateLimitEnabled?: boolean; sms?: SmsProvider; config?: Partial<AppConfig> } = {}) {
+// Scripted stand-in for the map services, so tests never touch the network.
+export class FakeMaps implements MapsProvider {
+  searches: { query: string; bias?: LatLng }[] = [];
+  routeCalls: { from: LatLng; to: LatLng }[] = [];
+  places: Place[] = [
+    { id: 'N1', title: 'Indiranagar', subtitle: 'Bengaluru, Karnataka', label: 'Indiranagar, Bengaluru, Karnataka', lat: 12.9784, lng: 77.6408 },
+  ];
+  route: RouteResult = {
+    distanceMeters: 35_214.6,
+    durationSeconds: 2140.4,
+    path: [
+      [12.9784, 77.6408],
+      [13.1986, 77.7064],
+    ],
+  };
+  error?: Error;
+
+  async searchPlaces(query: string, bias?: LatLng) {
+    this.searches.push({ query, bias });
+    if (this.error) throw this.error;
+    return this.places;
+  }
+
+  async getRoute(from: LatLng, to: LatLng) {
+    this.routeCalls.push({ from, to });
+    if (this.error) throw this.error;
+    return this.route;
+  }
+}
+
+export function makeApp(
+  opts: { rateLimitEnabled?: boolean; sms?: SmsProvider; maps?: MapsProvider; config?: Partial<AppConfig> } = {},
+) {
   return createApp(
     { ...testConfig, ...opts.config },
-    { sms: opts.sms ?? new CapturingSms(), rateLimitEnabled: opts.rateLimitEnabled },
+    {
+      sms: opts.sms ?? new CapturingSms(),
+      maps: opts.maps ?? new FakeMaps(),
+      rateLimitEnabled: opts.rateLimitEnabled,
+    },
   );
 }
 

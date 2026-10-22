@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -7,15 +7,26 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CreatePoolPage } from './CreatePoolPage'
 import { MyPoolsPage } from './MyPoolsPage'
 
+// Leaflet needs a real layout engine; the map is checked in the browser. This stub shows what it was given.
+vi.mock('../maps/RoutePreviewMap', () => ({
+  RoutePreviewMap: ({ start, end, path }: { start: { label: string } | null; end: { label: string } | null; path: unknown[] | null }) => (
+    <div data-testid="route-map">{`start:${start?.label ?? 'none'} end:${end?.label ?? 'none'} path:${path ? path.length : 0}`}</div>
+  ),
+}))
+
 const ok = (data: unknown, status = 200) => new Response(JSON.stringify({ success: true, data }), { status })
 const fail = (status: number, code: string, message: string, details?: unknown) =>
   new Response(JSON.stringify({ success: false, error: { code, message, details } }), { status })
+
+const airport = { id: 'N9', title: 'Kempegowda International Airport', subtitle: 'Devanahalli, Bengaluru', label: 'Kempegowda International Airport, Devanahalli, Bengaluru', lat: 13.1986, lng: 77.7066 }
+const indiranagar = { id: 'N1', title: 'Indiranagar', subtitle: 'Bengaluru, Karnataka', label: 'Indiranagar, Bengaluru, Karnataka', lat: 12.9784, lng: 77.6408 }
+const route = { distanceMeters: 35214.6, durationSeconds: 2140.4, path: [[12.97, 77.64], [13.19, 77.7]] }
 
 const createdRide = {
   id: 'r1',
   rideType: 'OWNER_VEHICLE',
   origin: { label: 'Current location' },
-  destination: { label: 'Airport' },
+  destination: { label: airport.label },
   departureAt: new Date(Date.now() + 2 * 86_400_000).toISOString(),
   vehicle: { category: 'SEDAN', make: 'Honda', model: 'City' },
   seats: { offered: 3, available: 3, taken: 0 },
@@ -24,18 +35,35 @@ const createdRide = {
   createdAt: new Date().toISOString(),
 }
 
-function stubFetch(createResponse: () => Response = () => ok({ ride: createdRide }, 201)) {
-  const fetchMock = vi.fn(async (url: string) => {
-    if (url === '/api/rides') return createResponse()
-    if (url === '/api/rides/mine') return ok({ rides: [createdRide] })
-    throw new Error(`unexpected request ${url}`)
+type Handlers = Partial<Record<'places' | 'route' | 'create', (url: URL) => Response>>
+
+function stubApi(handlers: Handlers = {}) {
+  const fetchMock = vi.fn(async (input: string) => {
+    const url = new URL(input, 'http://localhost')
+    switch (url.pathname) {
+      case '/api/maps/places':
+        return (handlers.places ?? (() => ok({ places: [airport, indiranagar] })))(url)
+      case '/api/maps/route':
+        return (handlers.route ?? (() => ok({ route })))(url)
+      case '/api/rides':
+        return (handlers.create ?? (() => ok({ ride: createdRide }, 201)))(url)
+      case '/api/rides/mine':
+        return ok({ rides: [createdRide] })
+    }
+    throw new Error(`unexpected request ${input}`)
   })
   vi.stubGlobal('fetch', fetchMock)
-  const posted = () => {
-    const call = (fetchMock.mock.calls as unknown as [string, RequestInit][]).find(([u]) => u === '/api/rides')
-    return call ? JSON.parse(call[1].body as string) : undefined
+
+  const calls = () => fetchMock.mock.calls as unknown as [string, RequestInit?][]
+  return {
+    fetchMock,
+    posted: () => {
+      const call = calls().find(([u]) => u === '/api/rides')
+      return call ? JSON.parse(call[1]!.body as string) : undefined
+    },
+    routeCalls: () => calls().filter(([u]) => u.startsWith('/api/maps/route')).map(([u]) => new URL(u, 'http://localhost')),
+    created: () => calls().some(([u]) => u === '/api/rides'),
   }
-  return { fetchMock, posted }
 }
 
 function stubGeolocation() {
@@ -60,10 +88,17 @@ function renderPage() {
 }
 
 const inDays = (n: number) => format(new Date(Date.now() + n * 86_400_000), "yyyy-MM-dd'T'HH:mm")
+type User = ReturnType<typeof userEvent.setup>
 
-async function fillValid(u: ReturnType<typeof userEvent.setup>, opts: { start?: string } = {}) {
-  if (opts.start) await u.type(screen.getByLabelText(/starting location/i), opts.start)
-  await u.type(screen.getByLabelText(/^destination/i), 'Airport')
+const startField = () => screen.getByRole('combobox', { name: /starting location/i })
+const destField = () => screen.getByRole('combobox', { name: /^destination$/i })
+
+async function pickDestination(u: User) {
+  await u.type(destField(), 'kempe')
+  await u.click(await screen.findByRole('option', { name: /kempegowda/i }))
+}
+
+async function fillRest(u: User) {
   fireEvent.change(screen.getByLabelText(/^departure/i), { target: { value: inDays(2) } })
   await u.selectOptions(screen.getByLabelText(/vehicle type/i), 'SEDAN')
   await u.type(screen.getByLabelText(/^make/i), 'Honda')
@@ -73,39 +108,176 @@ async function fillValid(u: ReturnType<typeof userEvent.setup>, opts: { start?: 
   await u.type(screen.getByLabelText(/fare per passenger/i), '250')
 }
 
+const submit = (u: User) => u.click(screen.getByRole('button', { name: /create pool/i }))
+
 afterEach(() => {
   vi.unstubAllGlobals()
   delete (navigator as unknown as { geolocation?: unknown }).geolocation
 })
 
-describe('CreatePoolPage', () => {
-  it('starts from the current location by default', () => {
-    stubFetch()
+describe('CreatePoolPage: places and route', () => {
+  it('starts from the live location, confirmed, with the start shown on the map', async () => {
+    stubApi()
     stubGeolocation()
     renderPage()
 
-    const start = screen.getByLabelText(/starting location/i)
-    expect(start).toHaveValue('Current location (12.9716, 77.5946)')
-    expect(start).toHaveAttribute('readonly')
+    await waitFor(() => expect(startField()).toHaveValue('Current location'))
+    expect(screen.getByText(/location confirmed/i)).toBeInTheDocument()
+    expect(screen.getByTestId('route-map')).toHaveTextContent('start:Current location end:none path:0')
+    expect(screen.getByText(/choose a start and a destination to preview your route/i)).toBeInTheDocument()
   })
 
-  it('creates a pool with the live location as the start, then shows it in My pools', async () => {
-    const { posted } = stubFetch()
+  it('previews the route as soon as the destination is chosen', async () => {
+    const api = stubApi()
     stubGeolocation()
     const u = userEvent.setup()
     renderPage()
+    await waitFor(() => expect(startField()).toHaveValue('Current location'))
 
-    await fillValid(u)
+    await pickDestination(u)
+
+    await waitFor(() => expect(screen.getByTestId('route-map')).toHaveTextContent(`end:${airport.label} path:2`))
+    expect(screen.getByText(/35\.2 km · about 36 min/i)).toBeInTheDocument()
+    expect(screen.getByText(/an estimate only/i)).toBeInTheDocument()
+
+    // The start is the live location rounded to about 100 m.
+    const call = api.routeCalls()[0]!
+    expect(call.searchParams.get('fromLat')).toBe('12.972')
+    expect(call.searchParams.get('fromLng')).toBe('77.595')
+    expect(call.searchParams.get('toLat')).toBe('13.1986')
+    expect(call.searchParams.get('toLng')).toBe('77.7066')
+  })
+
+  it('works without a live location: both ends are searched for', async () => {
+    stubApi()
+    const u = userEvent.setup()
+    renderPage()
+
+    await u.type(startField(), 'indi')
+    await u.click(await screen.findByRole('option', { name: /indiranagar/i }))
+    await pickDestination(u)
+
+    await waitFor(() => expect(screen.getByTestId('route-map')).toHaveTextContent(/start:Indiranagar.*end:Kempegowda.*path:2/))
+  })
+
+  it('biases suggestions towards the user when their location is known', async () => {
+    const api = stubApi()
+    stubGeolocation()
+    const u = userEvent.setup()
+    renderPage()
+    await waitFor(() => expect(startField()).toHaveValue('Current location'))
+
+    await u.type(destField(), 'kempe')
+    await screen.findByRole('option', { name: /kempegowda/i })
+
+    const search = (api.fetchMock.mock.calls as unknown as [string][]).map(([x]) => new URL(x, 'http://localhost')).find((x) => x.pathname === '/api/maps/places')!
+    expect(search.searchParams.get('lat')).toBe('12.972')
+  })
+
+  it('stops following the live location once the user types their own start', async () => {
+    stubApi()
+    stubGeolocation()
+    const u = userEvent.setup()
+    renderPage()
+    await waitFor(() => expect(startField()).toHaveValue('Current location'))
+
+    await u.clear(startField())
+    await u.type(startField(), 'Whitefield')
+
+    expect(startField()).toHaveValue('Whitefield')
+    expect(screen.queryByText(/location confirmed/i)).not.toBeInTheDocument()
+    expect(screen.getByTestId('route-map')).toHaveTextContent('start:none')
+  })
+
+  it('removes the route again when the destination is edited', async () => {
+    stubApi()
+    stubGeolocation()
+    const u = userEvent.setup()
+    renderPage()
+    await waitFor(() => expect(startField()).toHaveValue('Current location'))
+    await pickDestination(u)
+    await waitFor(() => expect(screen.getByTestId('route-map')).toHaveTextContent('path:2'))
+
+    await u.type(destField(), 'x')
+
+    expect(screen.getByTestId('route-map')).toHaveTextContent('end:none path:0')
+    expect(screen.getByText(/choose a start and a destination/i)).toBeInTheDocument()
+  })
+
+  it('keeps the form usable when the route cannot be calculated, and says why', async () => {
+    stubApi({ route: () => fail(422, 'NO_ROUTE', 'No driving route was found between these two places.') })
+    stubGeolocation()
+    const u = userEvent.setup()
+    renderPage()
+    await waitFor(() => expect(startField()).toHaveValue('Current location'))
+
+    await pickDestination(u)
+    expect(await screen.findByText(/no driving route was found/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /create pool/i })).toBeEnabled()
+  })
+
+  it('shows a general message when the route service is down', async () => {
+    stubApi({ route: () => fail(502, 'MAPS_UNAVAILABLE', 'down') })
+    stubGeolocation()
+    const u = userEvent.setup()
+    renderPage()
+    await waitFor(() => expect(startField()).toHaveValue('Current location'))
+
+    await pickDestination(u)
+    expect(await screen.findByText(/couldn't preview the route right now/i)).toBeInTheDocument()
+  })
+
+  it('requires a place from the list when search is working', async () => {
+    const api = stubApi()
+    stubGeolocation()
+    const u = userEvent.setup()
+    renderPage()
+    await waitFor(() => expect(startField()).toHaveValue('Current location'))
+
+    await u.type(destField(), 'somewhere I made up')
+    await screen.findAllByRole('option') // search answered, so it is working
+    await fillRest(u)
+    await submit(u)
+
+    expect(await screen.findByText(/choose a place from the suggestions/i)).toBeInTheDocument()
+    expect(api.created()).toBe(false)
+  })
+
+  it('accepts typed text when place search is down, saving it without coordinates', async () => {
+    const api = stubApi({ places: () => fail(502, 'MAPS_UNAVAILABLE', 'down') })
+    const u = userEvent.setup()
+    renderPage()
+
+    await u.type(startField(), 'Indiranagar')
+    expect(await screen.findByText(/place search is unavailable right now/i)).toBeInTheDocument()
+    await u.type(destField(), 'Airport')
+    await fillRest(u)
+    await submit(u)
+
+    await screen.findByRole('heading', { name: /my pools/i })
+    expect(api.posted().origin).toEqual({ label: 'Indiranagar' })
+    expect(api.posted().destination).toEqual({ label: 'Airport' })
+  })
+})
+
+describe('CreatePoolPage: creating the pool', () => {
+  it('saves both places with their coordinates, then shows My pools', async () => {
+    const api = stubApi()
+    stubGeolocation()
+    const u = userEvent.setup()
+    renderPage()
+    await waitFor(() => expect(startField()).toHaveValue('Current location'))
+
+    await pickDestination(u)
+    await fillRest(u)
     await u.click(screen.getByLabelText(/negotiable/i))
-    await u.click(screen.getByRole('button', { name: /create pool/i }))
+    await submit(u)
 
     expect(await screen.findByRole('heading', { name: /my pools/i })).toBeInTheDocument()
     expect(screen.getByText(/your pool is created/i)).toBeInTheDocument()
-    expect(await screen.findByText(/honda city/i)).toBeInTheDocument()
-
-    expect(posted()).toEqual({
-      origin: { label: 'Current location', coordinates: { lat: 12.9716, lng: 77.5946 } },
-      destination: { label: 'Airport' },
+    expect(api.posted()).toEqual({
+      origin: { label: 'Current location', coordinates: { lat: 12.972, lng: 77.595 } },
+      destination: { label: airport.label, coordinates: { lat: 13.1986, lng: 77.7066 } },
       departureAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T.*Z$/),
       vehicle: { category: 'SEDAN', make: 'Honda', model: 'City' },
       seats: 3,
@@ -115,57 +287,30 @@ describe('CreatePoolPage', () => {
   })
 
   it('sends a fixed fare when the negotiable box is left unticked', async () => {
-    const { posted } = stubFetch()
+    const api = stubApi()
     stubGeolocation()
     const u = userEvent.setup()
     renderPage()
+    await waitFor(() => expect(startField()).toHaveValue('Current location'))
 
-    await fillValid(u)
+    await pickDestination(u)
+    await fillRest(u)
     expect(screen.getByLabelText(/negotiable/i)).not.toBeChecked()
-    await u.click(screen.getByRole('button', { name: /create pool/i }))
+    await submit(u)
 
     await screen.findByRole('heading', { name: /my pools/i })
-    expect(posted().negotiable).toBe(false)
-  })
-
-  it('needs a typed start when there is no location, and sends no coordinates', async () => {
-    const { posted } = stubFetch()
-    const u = userEvent.setup()
-    renderPage()
-
-    expect(screen.getByLabelText(/starting location/i)).not.toHaveAttribute('readonly')
-    await fillValid(u)
-    await u.click(screen.getByRole('button', { name: /create pool/i }))
-    expect(await screen.findByText(/enter where you are starting from/i)).toBeInTheDocument()
-
-    await u.type(screen.getByLabelText(/starting location/i), 'Indiranagar')
-    await u.click(screen.getByRole('button', { name: /create pool/i }))
-    await screen.findByRole('heading', { name: /my pools/i })
-    expect(posted().origin).toEqual({ label: 'Indiranagar' })
-  })
-
-  it('lets the user switch between their current location and a typed start', async () => {
-    stubFetch()
-    stubGeolocation()
-    const u = userEvent.setup()
-    renderPage()
-
-    await u.click(screen.getByRole('button', { name: /start somewhere else/i }))
-    expect(screen.getByLabelText(/starting location/i)).not.toHaveAttribute('readonly')
-    expect(screen.getByLabelText(/starting location/i)).toHaveValue('')
-
-    await u.click(screen.getByRole('button', { name: /use my current location/i }))
-    expect(screen.getByLabelText(/starting location/i)).toHaveAttribute('readonly')
+    expect(api.posted().negotiable).toBe(false)
   })
 
   it('shows every missing field and sends nothing', async () => {
-    const { fetchMock } = stubFetch()
+    const api = stubApi()
     stubGeolocation()
     const u = userEvent.setup()
     renderPage()
+    await waitFor(() => expect(startField()).toHaveValue('Current location'))
 
     await u.clear(screen.getByLabelText(/seats you can offer/i))
-    await u.click(screen.getByRole('button', { name: /create pool/i }))
+    await submit(u)
 
     expect(await screen.findByText(/enter your destination/i)).toBeInTheDocument()
     expect(screen.getByText(/choose a departure date and time/i)).toBeInTheDocument()
@@ -174,26 +319,28 @@ describe('CreatePoolPage', () => {
     expect(screen.getByText(/enter the vehicle model/i)).toBeInTheDocument()
     expect(screen.getByText(/enter the number of seats/i)).toBeInTheDocument()
     expect(screen.getByText(/enter the fare/i)).toBeInTheDocument()
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(api.created()).toBe(false)
   })
 
   it('limits seats to what the chosen vehicle can carry', async () => {
-    const { fetchMock } = stubFetch()
+    const api = stubApi()
     stubGeolocation()
     const u = userEvent.setup()
     renderPage()
+    await waitFor(() => expect(startField()).toHaveValue('Current location'))
 
     expect(screen.getByText(/passengers you can take, not counting you/i)).toBeInTheDocument()
-    await fillValid(u)
+    await pickDestination(u)
+    await fillRest(u)
     await u.selectOptions(screen.getByLabelText(/vehicle type/i), 'HATCHBACK')
     expect(screen.getByText(/up to 4 passengers for this vehicle type/i)).toBeInTheDocument()
 
     await u.clear(screen.getByLabelText(/seats you can offer/i))
     await u.type(screen.getByLabelText(/seats you can offer/i), '5')
-    await u.click(screen.getByRole('button', { name: /create pool/i }))
+    await submit(u)
 
     expect(await screen.findByText(/a hatchback can offer at most 4 seats/i)).toBeInTheDocument()
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(api.created()).toBe(false)
   })
 
   it.each([
@@ -201,78 +348,90 @@ describe('CreatePoolPage', () => {
     ['a fare with three decimals', '10.123', /at most 2 decimal places/i],
     ['an absurdly large fare', '999999', /fare cannot exceed/i],
   ])('rejects %s', async (_label, value, message) => {
-    const { fetchMock } = stubFetch()
+    const api = stubApi()
     stubGeolocation()
     const u = userEvent.setup()
     renderPage()
+    await waitFor(() => expect(startField()).toHaveValue('Current location'))
 
-    await fillValid(u)
+    await pickDestination(u)
+    await fillRest(u)
     await u.clear(screen.getByLabelText(/fare per passenger/i))
     await u.type(screen.getByLabelText(/fare per passenger/i), value)
-    await u.click(screen.getByRole('button', { name: /create pool/i }))
+    await submit(u)
 
     expect(await screen.findByText(message)).toBeInTheDocument()
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(api.created()).toBe(false)
   })
 
   it('rejects a departure that is too soon', async () => {
-    const { fetchMock } = stubFetch()
+    const api = stubApi()
     stubGeolocation()
     const u = userEvent.setup()
     renderPage()
+    await waitFor(() => expect(startField()).toHaveValue('Current location'))
 
-    await fillValid(u)
+    await pickDestination(u)
+    await fillRest(u)
     fireEvent.change(screen.getByLabelText(/^departure/i), { target: { value: format(new Date(Date.now() + 60_000), "yyyy-MM-dd'T'HH:mm") } })
-    await u.click(screen.getByRole('button', { name: /create pool/i }))
+    await submit(u)
 
     expect(await screen.findByText(/at least 10 minutes from now/i)).toBeInTheDocument()
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(api.created()).toBe(false)
   })
 
   it('puts a server validation message on the matching field', async () => {
-    stubFetch(() =>
-      fail(400, 'VALIDATION_ERROR', 'Invalid input', [
-        { path: 'destination.label', message: 'Destination must be different from the starting location' },
-      ]),
-    )
+    stubApi({
+      create: () =>
+        fail(400, 'VALIDATION_ERROR', 'Invalid input', [
+          { path: 'destination.label', message: 'Destination must be different from the starting location' },
+        ]),
+    })
     stubGeolocation()
     const u = userEvent.setup()
     renderPage()
+    await waitFor(() => expect(startField()).toHaveValue('Current location'))
 
-    await fillValid(u)
-    await u.click(screen.getByRole('button', { name: /create pool/i }))
+    await pickDestination(u)
+    await fillRest(u)
+    await submit(u)
 
     expect(await screen.findByText(/destination must be different/i)).toBeInTheDocument()
-    expect(screen.getByLabelText(/^destination/i)).toHaveAttribute('aria-invalid', 'true')
+    expect(destField()).toHaveAttribute('aria-invalid', 'true')
     expect(screen.getByRole('heading', { name: /create a pool/i })).toBeInTheDocument()
   })
 
   it('shows other server errors (duplicate, limits) as a message above the button', async () => {
-    stubFetch(() => fail(409, 'DUPLICATE_RIDE', 'You already have a pool for this route at this time'))
+    stubApi({ create: () => fail(409, 'DUPLICATE_RIDE', 'You already have a pool for this route at this time') })
     stubGeolocation()
     const u = userEvent.setup()
     renderPage()
+    await waitFor(() => expect(startField()).toHaveValue('Current location'))
 
-    await fillValid(u)
-    await u.click(screen.getByRole('button', { name: /create pool/i }))
+    await pickDestination(u)
+    await fillRest(u)
+    await submit(u)
 
     expect(await screen.findByText(/already have a pool for this route/i)).toBeInTheDocument()
   })
 
   it('shows a friendly message when the server is unreachable', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
+    const api = stubApi({ create: () => { throw new TypeError('Failed to fetch') } })
     stubGeolocation()
     const u = userEvent.setup()
     renderPage()
+    await waitFor(() => expect(startField()).toHaveValue('Current location'))
 
-    await fillValid(u)
-    await u.click(screen.getByRole('button', { name: /create pool/i }))
+    await pickDestination(u)
+    await fillRest(u)
+    await submit(u)
 
     expect(await screen.findByText(/could not reach the server/i)).toBeInTheDocument()
+    expect(api.created()).toBe(true)
   })
 
   it('reminds owners that Pool-In is for cost sharing', () => {
-    stubFetch()
+    stubApi()
     renderPage()
     expect(screen.getByText(/not for running a taxi service/i)).toBeInTheDocument()
   })

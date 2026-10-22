@@ -8,12 +8,14 @@ import { createApiRouter } from './routes/index.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import type { Env } from './config/env.js';
 import type { SmsProvider } from './services/sms/index.js';
+import type { MapsProvider } from './services/maps/types.js';
 
 export type AppConfig = Pick<Env, 'CLIENT_ORIGIN' | 'JWT_SECRET' | 'JWT_EXPIRES_DAYS' | 'NODE_ENV'> &
   Partial<Pick<Env, 'REQUIRE_VERIFIED_PHONE_FOR_BOOKING'>>;
 
 export interface AppOptions {
   sms: SmsProvider;
+  maps: MapsProvider;
   rateLimitEnabled?: boolean;
 }
 
@@ -38,6 +40,7 @@ export function createApp(env: AppConfig, opts: AppOptions): Express {
       token: { JWT_SECRET: env.JWT_SECRET, JWT_EXPIRES_DAYS: env.JWT_EXPIRES_DAYS, NODE_ENV: env.NODE_ENV },
       rateLimitEnabled: opts.rateLimitEnabled ?? env.NODE_ENV !== 'test',
       sms: opts.sms,
+      maps: opts.maps,
       requireVerifiedPhoneForBooking: env.REQUIRE_VERIFIED_PHONE_FOR_BOOKING ?? false,
     }),
   );
