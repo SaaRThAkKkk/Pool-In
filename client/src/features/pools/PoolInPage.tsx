@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom'
 import { Controller, useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { format } from 'date-fns'
 import { CircleCheck, Clock, Minus, Plus, Route as RouteIcon, Users } from 'lucide-react'
 import { z } from 'zod'
 import { ApiError } from '../../lib/api'
@@ -12,6 +11,7 @@ import { useLiveLocation } from '../location/useLiveLocation'
 import { PlaceAutocomplete } from '../maps/PlaceAutocomplete'
 import { RoutePreviewMap } from '../maps/RoutePreviewMap'
 import { fetchRoute, formatDistance, formatDuration, type Place } from '../maps/mapsApi'
+import { TIME_PATTERN, describeArrival, nextOccurrence } from './arrivalTime'
 import { LuggageSelector } from './LuggageSelector'
 import { ModeChoice } from './ModeChoice'
 import {
@@ -28,7 +28,6 @@ import {
   type VehicleCategory,
 } from './poolsApi'
 
-const MIN_LEAD_MINUTES = 10
 const MAX_FARE = 100_000
 const CURRENT_LABEL = 'Current location'
 const round = (n: number, digits: number) => Number(n.toFixed(digits))
@@ -42,13 +41,11 @@ const schema = z
     mode: z.enum(['OWN_VEHICLE', 'POOL_CAB'], { error: 'Choose how you want to pool' }),
     startText: z.string().trim().min(3, 'Enter where you are starting from').max(200, 'Too long (200 characters max)'),
     endText: z.string().trim().min(3, 'Enter your destination').max(200, 'Too long (200 characters max)'),
+    // A clock time only ("18:30"); nextOccurrence() decides which day it means.
     arriveBy: z
       .string()
-      .min(1, 'Choose when you need to arrive')
-      .refine(
-        (v) => new Date(v).getTime() >= Date.now() + MIN_LEAD_MINUTES * 60_000,
-        `Arrival time must be at least ${MIN_LEAD_MINUTES} minutes from now`,
-      ),
+      .min(1, 'Choose the time you need to arrive')
+      .regex(TIME_PATTERN, 'Enter a valid time'),
     vehicleCategory: z.string().optional(),
     vehicleMake: z.string().trim().max(40, 'Too long (40 characters max)').optional(),
     vehicleModel: z.string().trim().max(40, 'Too long (40 characters max)').optional(),
@@ -176,7 +173,6 @@ function OutcomePanel({ result, onAnother }: { result: PoolInResult; onAnother: 
 export function PoolInPage() {
   const queryClient = useQueryClient()
   const { position } = useLiveLocation()
-  const [minArrival] = useState(() => format(new Date(Date.now() + MIN_LEAD_MINUTES * 60_000), "yyyy-MM-dd'T'HH:mm"))
 
   // The live location, rounded to ~100 m so GPS jitter does not keep changing the start (or refetching the route).
   const curLat = position ? round(position.lat, 3) : null
@@ -218,6 +214,12 @@ export function PoolInPage() {
   const mode = useWatch({ control, name: 'mode' }) ?? null
   const category = useWatch({ control, name: 'vehicleCategory' })
   const people = useWatch({ control, name: 'people' })
+  const arriveTime = useWatch({ control, name: 'arriveBy' })
+  // Which day the chosen clock time is taken to mean, shown so the user is never surprised.
+  const arrivalHint =
+    arriveTime && TIME_PATTERN.test(arriveTime)
+      ? `We'll plan for ${describeArrival(nextOccurrence(arriveTime))}.`
+      : 'The latest time you need to arrive.'
   const maxSeats = category ? categoryInfo(category)?.maxPassengers : undefined
 
   // Route preview once both ends are confirmed places.
@@ -282,7 +284,7 @@ export function PoolInPage() {
     const trip = {
       origin: placeInput(startPlace, v.startText),
       destination: placeInput(endPlace, v.endText),
-      arriveBy: new Date(v.arriveBy).toISOString(),
+      arriveBy: nextOccurrence(v.arriveBy).toISOString(),
       luggage,
     }
     const payload: PoolInPayload =
@@ -395,13 +397,13 @@ export function PoolInPage() {
                 />
               )}
             />
-            <Field id="arriveBy" label="Reach the destination by" error={errors.arriveBy?.message} hint="The latest time you need to arrive.">
+            <Field id="arriveBy" label="Reach the destination by" error={errors.arriveBy?.message} hint={arrivalHint}>
               <div className="relative">
                 <Clock aria-hidden className="pointer-events-none absolute left-3 top-1/2 mt-0.5 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 <input
                   id="arriveBy"
-                  type="datetime-local"
-                  min={minArrival}
+                  type="time"
+                  step={60}
                   className={`${inputClass} pl-9`}
                   aria-invalid={!!errors.arriveBy}
                   aria-describedby={describe('arriveBy', true)}

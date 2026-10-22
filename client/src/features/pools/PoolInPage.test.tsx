@@ -78,7 +78,8 @@ function renderPage() {
   )
 }
 
-const inDays = (n: number) => format(new Date(Date.now() + n * 86_400_000), "yyyy-MM-dd'T'HH:mm")
+const TIME = '18:30' // the clock time most tests choose to arrive by
+const clockIn = (minutes: number) => format(new Date(Date.now() + minutes * 60_000), 'HH:mm')
 type User = ReturnType<typeof userEvent.setup>
 
 const startField = () => screen.getByRole('combobox', { name: /starting location/i })
@@ -100,7 +101,7 @@ async function pickDestination(u: User) {
 
 async function fillTrip(u: User) {
   await pickDestination(u)
-  fireEvent.change(arrival(), { target: { value: inDays(2) } })
+  fireEvent.change(arrival(), { target: { value: TIME } })
 }
 
 async function fillOwner(u: User) {
@@ -127,7 +128,8 @@ describe('PoolInPage: the shared trip questions', () => {
     expect(screen.getByRole('heading', { name: 'Pool In' })).toBeInTheDocument()
     expect(screen.getByText(/location confirmed/i)).toBeInTheDocument()
     expect(destField()).toBeInTheDocument()
-    expect(arrival()).toHaveAttribute('type', 'datetime-local')
+    expect(arrival()).toHaveAttribute('type', 'time')
+    expect(document.querySelector('input[type="date"], input[type="datetime-local"]')).toBeNull()
     expect(screen.getByRole('group', { name: /large suitcases/i })).toBeInTheDocument()
     expect(screen.queryByLabelText(/departure/i)).not.toBeInTheDocument()
   })
@@ -345,7 +347,7 @@ describe('PoolInPage: "I own the vehicle" -> car-owner section', () => {
     await submit(u)
 
     expect(await screen.findByText(/enter your destination/i)).toBeInTheDocument()
-    expect(screen.getByText(/choose when you need to arrive/i)).toBeInTheDocument()
+    expect(screen.getByText(/choose the time you need to arrive/i)).toBeInTheDocument()
     expect(screen.getByText(/choose a vehicle type/i)).toBeInTheDocument()
     expect(screen.getByText(/enter the vehicle make/i)).toBeInTheDocument()
     expect(screen.getByText(/enter the vehicle model/i)).toBeInTheDocument()
@@ -508,7 +510,59 @@ describe('PoolInPage: "Pool a cab" -> search, else cab section', () => {
 })
 
 describe('PoolInPage: arrival time, places and errors', () => {
-  it('rejects an arrival time that is too soon', async () => {
+  it('takes a chosen clock time to mean its next occurrence: sent as a real moment within the next day', async () => {
+    const api = stubApi({ pools: () => ok(cabCreated, 201) })
+    stubGeolocation()
+    const u = userEvent.setup()
+    renderPage()
+    await ready()
+
+    await fillTrip(u)
+    await cabMode(u)
+    const before = Date.now()
+    await submit(u)
+    await screen.findByRole('heading', { name: /your pool request is saved/i })
+
+    const arrive = new Date(api.posted().arriveBy)
+    expect(arrive.getHours()).toBe(18)
+    expect(arrive.getMinutes()).toBe(30)
+    expect(arrive.getTime()).toBeGreaterThanOrEqual(before + 10 * 60_000)
+    expect(arrive.getTime()).toBeLessThanOrEqual(before + 24 * 3_600_000 + 10 * 60_000)
+  })
+
+  it('tells the user which day their time was taken to mean', async () => {
+    stubApi()
+    stubGeolocation()
+    renderPage()
+    await ready()
+
+    expect(screen.getByText(/the latest time you need to arrive/i)).toBeInTheDocument()
+    fireEvent.change(arrival(), { target: { value: TIME } })
+    expect(screen.getByText(/we'll plan for (today|tomorrow) at 6:30 pm\./i)).toBeInTheDocument()
+  })
+
+  it('sends a time that is only minutes away for tomorrow, and says so', async () => {
+    const api = stubApi({ pools: () => ok(cabCreated, 201) })
+    stubGeolocation()
+    const u = userEvent.setup()
+    renderPage()
+    await ready()
+
+    await pickDestination(u)
+    fireEvent.change(arrival(), { target: { value: clockIn(5) } })
+    expect(screen.getByText(/we'll plan for tomorrow at/i)).toBeInTheDocument()
+
+    await cabMode(u)
+    await submit(u)
+    await screen.findByRole('heading', { name: /your pool request is saved/i })
+
+    const ms = new Date(api.posted().arriveBy).getTime() - Date.now()
+    // Tomorrow at (now + ~5 min): a day and a few minutes from now.
+    expect(ms).toBeGreaterThan(23 * 3_600_000)
+    expect(ms).toBeLessThan(24 * 3_600_000 + 6 * 60_000)
+  })
+
+  it('needs a time to be chosen', async () => {
     const api = stubApi()
     stubGeolocation()
     const u = userEvent.setup()
@@ -516,11 +570,10 @@ describe('PoolInPage: arrival time, places and errors', () => {
     await ready()
 
     await pickDestination(u)
-    fireEvent.change(arrival(), { target: { value: format(new Date(Date.now() + 60_000), "yyyy-MM-dd'T'HH:mm") } })
     await cabMode(u)
     await submit(u)
 
-    expect(await screen.findByText(/at least 10 minutes from now/i)).toBeInTheDocument()
+    expect(await screen.findByText(/choose the time you need to arrive/i)).toBeInTheDocument()
     expect(api.submitted()).toBe(false)
   })
 
@@ -533,7 +586,7 @@ describe('PoolInPage: arrival time, places and errors', () => {
 
     await u.type(destField(), 'somewhere I made up')
     await screen.findAllByRole('option') // search answered, so it is working
-    fireEvent.change(arrival(), { target: { value: inDays(2) } })
+    fireEvent.change(arrival(), { target: { value: TIME } })
     await cabMode(u)
     await submit(u)
 
@@ -549,7 +602,7 @@ describe('PoolInPage: arrival time, places and errors', () => {
     await u.type(startField(), 'Indiranagar')
     expect(await screen.findByText(/place search is unavailable right now/i)).toBeInTheDocument()
     await u.type(destField(), 'Airport')
-    fireEvent.change(arrival(), { target: { value: inDays(2) } })
+    fireEvent.change(arrival(), { target: { value: TIME } })
     await cabMode(u)
     await submit(u)
 
