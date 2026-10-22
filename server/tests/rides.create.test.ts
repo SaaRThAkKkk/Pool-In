@@ -123,7 +123,7 @@ describe('POST /api/rides', () => {
       ['start and destination at the same spot', { destination: { label: 'Elsewhere', coordinates: { lat: 12.9785, lng: 77.6409 } } }, 'destination.label'],
       ['latitude out of range', { origin: { label: 'Nowhere', coordinates: { lat: 95, lng: 10 } } }, 'origin.coordinates.lat'],
       ['coordinates with only a latitude', { origin: { label: 'Nowhere', coordinates: { lat: 10 } } }, 'origin.coordinates.lng'],
-      ['malformed departure', { departureAt: 'tomorrow' }, 'departureAt'],
+      ['malformed departure (when sent)', { departureAt: 'tomorrow' }, 'departureAt'],
       ['departure in the past', { departureAt: hoursFromNow(-2) }, 'departureAt'],
       ['departure too soon', { departureAt: new Date(Date.now() + 60_000).toISOString() }, 'departureAt'],
       ['departure too far ahead', { departureAt: hoursFromNow(24 * 120) }, 'departureAt'],
@@ -229,7 +229,7 @@ describe('GET /api/rides/mine and /api/rides/:id', () => {
     expect((await request(app).get('/api/rides/507f1f77bcf86cd799439011')).status).toBe(401);
   });
 
-  it('lists only the signed-in user\'s pools, soonest departure last', async () => {
+  it('lists only the signed-in user\'s pools, newest first', async () => {
     const a = await signUp('a@example.com', '9876543210');
     const b = await signUp('b@example.com', '9123456780');
     await create(a, validRide({ destination: { label: 'Soon' }, departureAt: hoursFromNow(30) }));
@@ -263,6 +263,55 @@ describe('GET /api/rides/mine and /api/rides/:id', () => {
     expect((await stranger.get(`/api/rides/${id}`)).status).toBe(404);
     expect((await owner.get('/api/rides/not-an-id')).status).toBe(404);
     expect((await owner.get('/api/rides/507f1f77bcf86cd799439011')).status).toBe(404);
+  });
+});
+
+describe('pools without a departure time', () => {
+  const { departureAt: _drop, ...noTime } = validRide();
+
+  it('can be created, and report a null departure', async () => {
+    const owner = await signUp();
+    const res = await create(owner, noTime);
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.ride.departureAt).toBeNull();
+    expect(res.body.data.ride.status).toBe('OPEN');
+    const stored = await Ride.findById(res.body.data.ride.id);
+    expect(stored!.departureAt).toBeUndefined();
+  });
+
+  it('still validates a departure when one is sent', async () => {
+    const owner = await signUp();
+    const res = await create(owner, validRide({ departureAt: hoursFromNow(-2) }));
+    expect(res.status).toBe(400);
+    expect(res.body.error.details.map((d: { path: string }) => d.path)).toContain('departureAt');
+  });
+
+  it('rejects the same route twice, even at the same moment, but allows other routes', async () => {
+    const owner = await signUp();
+    const results = await Promise.all([create(owner, noTime), create(owner, noTime)]);
+    expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
+    expect(results.find((r) => r.status === 409)!.body.error.code).toBe('DUPLICATE_RIDE');
+
+    expect((await create(owner, { ...noTime, destination: { label: 'Whitefield' } })).status).toBe(201);
+  });
+
+  it('can sit alongside a timed pool on the same route', async () => {
+    const owner = await signUp();
+    expect((await create(owner, validRide())).status).toBe(201);
+    expect((await create(owner, noTime)).status).toBe(201);
+  });
+
+  it('are listed newest first together with timed pools', async () => {
+    const owner = await signUp();
+    await create(owner, { ...noTime, destination: { label: 'First' } });
+    await create(owner, validRide({ destination: { label: 'Second' } }));
+    await create(owner, { ...noTime, destination: { label: 'Third' } });
+
+    const res = await owner.get('/api/rides/mine');
+    expect(res.body.data.rides.map((r: { destination: { label: string } }) => r.destination.label)).toEqual(['Third', 'Second', 'First']);
+    expect(res.body.data.rides[0].departureAt).toBeNull();
+    expect(res.body.data.rides[1].departureAt).not.toBeNull();
   });
 });
 

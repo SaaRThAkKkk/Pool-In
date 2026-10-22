@@ -23,10 +23,11 @@ export const createRideSchema = z
   .object({
     origin: location('starting location'),
     destination: location('destination'),
-    // ISO-8601 with an offset (the browser sends UTC). Lead-time limits are checked in the service.
+    // Optional. When given: ISO-8601 with an offset (the browser sends UTC); lead-time limits are checked in the service.
     departureAt: z.iso
       .datetime({ offset: true, error: 'Enter a valid departure date and time' })
-      .transform((v) => new Date(v)),
+      .transform((v) => new Date(v))
+      .optional(),
     vehicle: z.object({
       category: z.enum(VEHICLE_CATEGORY_KEYS, { error: 'Choose a vehicle type' }),
       make: z.string().trim().min(2, 'Enter the vehicle make').max(40, 'Too long (40 characters max)'),

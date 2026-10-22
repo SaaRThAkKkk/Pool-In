@@ -3,7 +3,6 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Controller, useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { format } from 'date-fns'
 import { Route as RouteIcon } from 'lucide-react'
 import { z } from 'zod'
 import { ApiError } from '../../lib/api'
@@ -22,20 +21,12 @@ import {
   type VehicleCategory,
 } from './poolsApi'
 
-const MIN_LEAD_MINUTES = 10
 const MAX_FARE = 100_000
 
 const schema = z
   .object({
     startText: z.string().trim().min(3, 'Enter where you are starting from').max(200, 'Too long (200 characters max)'),
     endText: z.string().trim().min(3, 'Enter your destination').max(200, 'Too long (200 characters max)'),
-    departAt: z
-      .string()
-      .min(1, 'Choose a departure date and time')
-      .refine(
-        (v) => new Date(v).getTime() >= Date.now() + MIN_LEAD_MINUTES * 60_000,
-        `Departure must be at least ${MIN_LEAD_MINUTES} minutes from now`,
-      ),
     vehicleCategory: z.string().refine((v) => !!categoryInfo(v), 'Choose a vehicle type'),
     vehicleMake: z.string().trim().min(2, 'Enter the vehicle make').max(40, 'Too long (40 characters max)'),
     vehicleModel: z.string().trim().min(1, 'Enter the vehicle model').max(40, 'Too long (40 characters max)'),
@@ -63,7 +54,6 @@ type PoolForm = z.input<typeof schema>
 const SERVER_FIELD: Record<string, keyof PoolForm> = {
   'origin.label': 'startText',
   'destination.label': 'endText',
-  departureAt: 'departAt',
   'vehicle.category': 'vehicleCategory',
   'vehicle.make': 'vehicleMake',
   'vehicle.model': 'vehicleModel',
@@ -112,7 +102,6 @@ export function CreatePoolPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { position } = useLiveLocation()
-  const [minDeparture] = useState(() => format(new Date(Date.now() + MIN_LEAD_MINUTES * 60_000), "yyyy-MM-dd'T'HH:mm"))
 
   // The live location, rounded to ~100 m so GPS jitter does not keep changing the start (or refetching the route).
   const curLat = position ? round(position.lat, 3) : null
@@ -210,7 +199,6 @@ export function CreatePoolPage() {
     const payload: CreatePoolPayload = {
       origin: placeInput(startPlace, v.startText),
       destination: placeInput(endPlace, v.endText),
-      departureAt: new Date(v.departAt).toISOString(),
       vehicle: { category: v.vehicleCategory as VehicleCategory, make: v.vehicleMake.trim(), model: v.vehicleModel.trim() },
       seats: v.seats,
       askingPrice: v.fare,
@@ -297,17 +285,6 @@ export function CreatePoolPage() {
                 />
               )}
             />
-            <Field id="departAt" label="Departure" error={errors.departAt?.message}>
-              <input
-                id="departAt"
-                type="datetime-local"
-                min={minDeparture}
-                className={inputClass}
-                aria-invalid={!!errors.departAt}
-                aria-describedby={describe('departAt')}
-                {...register('departAt')}
-              />
-            </Field>
           </Section>
 
           <Section title="Your vehicle">

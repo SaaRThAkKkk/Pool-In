@@ -5,7 +5,7 @@ import { AppError, conflict, notFound } from '../../utils/errors.js';
 import { normalizeLabel, type CreateRideInput } from '../../validators/rides.js';
 
 const dedupeKey = (i: CreateRideInput) =>
-  [i.origin.label, i.destination.label].map(normalizeLabel).join('|') + `|${i.departureAt.getTime()}`;
+  [i.origin.label, i.destination.label].map(normalizeLabel).join('|') + `|${i.departureAt?.getTime() ?? 'any'}`;
 
 function isDuplicateKeyError(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as { code?: number }).code === 11000;
@@ -18,13 +18,15 @@ export async function createOwnerRide(
   input: CreateRideInput,
   now = new Date(),
 ): Promise<RideDocument> {
-  const lead = input.departureAt.getTime() - now.getTime();
-  if (lead < RIDE_POLICY.MIN_LEAD_MS || lead > RIDE_POLICY.MAX_LEAD_MS) {
-    const message =
-      lead < RIDE_POLICY.MIN_LEAD_MS
-        ? `Departure must be at least ${RIDE_POLICY.MIN_LEAD_MS / 60_000} minutes from now`
-        : `Departure can be at most ${RIDE_POLICY.MAX_LEAD_MS / 86_400_000} days from now`;
-    throw new AppError(400, 'VALIDATION_ERROR', 'Invalid input', [{ path: 'departureAt', message }]);
+  if (input.departureAt) {
+    const lead = input.departureAt.getTime() - now.getTime();
+    if (lead < RIDE_POLICY.MIN_LEAD_MS || lead > RIDE_POLICY.MAX_LEAD_MS) {
+      const message =
+        lead < RIDE_POLICY.MIN_LEAD_MS
+          ? `Departure must be at least ${RIDE_POLICY.MIN_LEAD_MS / 60_000} minutes from now`
+          : `Departure can be at most ${RIDE_POLICY.MAX_LEAD_MS / 86_400_000} days from now`;
+      throw new AppError(400, 'VALIDATION_ERROR', 'Invalid input', [{ path: 'departureAt', message }]);
+    }
   }
 
   const active = await Ride.countDocuments({
@@ -67,7 +69,8 @@ export async function createOwnerRide(
 }
 
 export function listOwnerRides(owner: UserDocument): Promise<RideDocument[]> {
-  return Ride.find({ ownerUserId: owner._id }).sort({ departureAt: -1 }).limit(100);
+  // Newest first: not every pool has a departure time.
+  return Ride.find({ ownerUserId: owner._id }).sort({ createdAt: -1 }).limit(100);
 }
 
 // Returns 404 (not 403) for someone else's ride so ids cannot be probed.

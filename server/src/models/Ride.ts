@@ -53,7 +53,8 @@ const rideSchema = new Schema(
     destination: { type: locationSchema, required: true },
     originPoint: { type: pointSchema, required: false },
     destinationPoint: { type: pointSchema, required: false },
-    departureAt: { type: Date, required: true },
+    // Optional: a pool can be offered without a fixed time (the owner agrees timing with riders).
+    departureAt: { type: Date, required: false },
     // Snapshot of the declared vehicle. Registration numbers are deliberately not collected.
     vehicle: {
       type: new Schema(
@@ -113,7 +114,7 @@ export function toOwnerRideDto(ride: RideDocument) {
     rideType: ride.rideType,
     origin: loc(ride.origin),
     destination: loc(ride.destination),
-    departureAt: ride.departureAt,
+    departureAt: ride.departureAt ?? null,
     vehicle: { category: ride.vehicle.category, make: ride.vehicle.make, model: ride.vehicle.model },
     seats: {
       offered: ride.passengerCapacity,

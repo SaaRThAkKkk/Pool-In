@@ -22,7 +22,8 @@ export interface PlaceInput {
 export interface CreatePoolPayload {
   origin: PlaceInput
   destination: PlaceInput
-  departureAt: string // ISO-8601
+  /** Optional ISO-8601 departure. The create form no longer asks for one. */
+  departureAt?: string
   vehicle: { category: VehicleCategory; make: string; model: string }
   seats: number
   askingPrice: number
@@ -34,7 +35,8 @@ export interface OwnerPool {
   rideType: string
   origin: PlaceInput
   destination: PlaceInput
-  departureAt: string
+  /** null when the owner did not set a time. */
+  departureAt: string | null
   vehicle: { category: VehicleCategory; make: string; model: string }
   seats: { offered: number; available: number; taken: number }
   pricing: { amount: number; currency: string; basis: string; negotiable: boolean }

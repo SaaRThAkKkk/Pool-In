@@ -1,8 +1,7 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { format } from 'date-fns'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CreatePoolPage } from './CreatePoolPage'
 import { MyPoolsPage } from './MyPoolsPage'
@@ -27,7 +26,7 @@ const createdRide = {
   rideType: 'OWNER_VEHICLE',
   origin: { label: 'Current location' },
   destination: { label: airport.label },
-  departureAt: new Date(Date.now() + 2 * 86_400_000).toISOString(),
+  departureAt: null,
   vehicle: { category: 'SEDAN', make: 'Honda', model: 'City' },
   seats: { offered: 3, available: 3, taken: 0 },
   pricing: { amount: 250, currency: 'INR', basis: 'PER_PASSENGER', negotiable: true },
@@ -87,7 +86,6 @@ function renderPage() {
   )
 }
 
-const inDays = (n: number) => format(new Date(Date.now() + n * 86_400_000), "yyyy-MM-dd'T'HH:mm")
 type User = ReturnType<typeof userEvent.setup>
 
 const startField = () => screen.getByRole('combobox', { name: /starting location/i })
@@ -99,7 +97,6 @@ async function pickDestination(u: User) {
 }
 
 async function fillRest(u: User) {
-  fireEvent.change(screen.getByLabelText(/^departure/i), { target: { value: inDays(2) } })
   await u.selectOptions(screen.getByLabelText(/vehicle type/i), 'SEDAN')
   await u.type(screen.getByLabelText(/^make/i), 'Honda')
   await u.type(screen.getByLabelText(/^model/i), 'City')
@@ -278,7 +275,6 @@ describe('CreatePoolPage: creating the pool', () => {
     expect(api.posted()).toEqual({
       origin: { label: 'Current location', coordinates: { lat: 12.972, lng: 77.595 } },
       destination: { label: airport.label, coordinates: { lat: 13.1986, lng: 77.7066 } },
-      departureAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T.*Z$/),
       vehicle: { category: 'SEDAN', make: 'Honda', model: 'City' },
       seats: 3,
       askingPrice: 250,
@@ -313,7 +309,6 @@ describe('CreatePoolPage: creating the pool', () => {
     await submit(u)
 
     expect(await screen.findByText(/enter your destination/i)).toBeInTheDocument()
-    expect(screen.getByText(/choose a departure date and time/i)).toBeInTheDocument()
     expect(screen.getByText(/choose a vehicle type/i)).toBeInTheDocument()
     expect(screen.getByText(/enter the vehicle make/i)).toBeInTheDocument()
     expect(screen.getByText(/enter the vehicle model/i)).toBeInTheDocument()
@@ -364,20 +359,22 @@ describe('CreatePoolPage: creating the pool', () => {
     expect(api.created()).toBe(false)
   })
 
-  it('rejects a departure that is too soon', async () => {
+  it('does not ask for a departure date or time, and does not send one', async () => {
     const api = stubApi()
     stubGeolocation()
     const u = userEvent.setup()
     renderPage()
     await waitFor(() => expect(startField()).toHaveValue('Current location'))
 
+    expect(screen.queryByLabelText(/departure/i)).not.toBeInTheDocument()
+    expect(document.querySelector('input[type="datetime-local"], input[type="date"]')).toBeNull()
+
     await pickDestination(u)
     await fillRest(u)
-    fireEvent.change(screen.getByLabelText(/^departure/i), { target: { value: format(new Date(Date.now() + 60_000), "yyyy-MM-dd'T'HH:mm") } })
     await submit(u)
 
-    expect(await screen.findByText(/at least 10 minutes from now/i)).toBeInTheDocument()
-    expect(api.created()).toBe(false)
+    await screen.findByRole('heading', { name: /my pools/i })
+    expect(api.posted()).not.toHaveProperty('departureAt')
   })
 
   it('puts a server validation message on the matching field', async () => {

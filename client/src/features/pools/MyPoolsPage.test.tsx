@@ -48,6 +48,15 @@ describe('MyPoolsPage', () => {
     expect(screen.getAllByText('Open')).toHaveLength(2)
   })
 
+  it('shows flexible timing for a pool with no departure time, and the date when there is one', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ok({ rides: [pool({ id: 'r1', departureAt: null }), pool({ id: 'r2', destination: { label: 'Whitefield' } })] })))
+    renderPage()
+
+    expect(await screen.findByText('Flexible timing')).toBeInTheDocument()
+    expect(screen.getAllByText(/flexible timing/i)).toHaveLength(1)
+    expect(screen.getByText(/jan 2030/i)).toBeInTheDocument()
+  })
+
   it('invites the user to create a first pool when there are none', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ok({ rides: [] })))
     renderPage()

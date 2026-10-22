@@ -33,7 +33,7 @@ function PoolCard({ pool }: { pool: OwnerPool }) {
         <div className="flex items-center gap-2">
           <CalendarClock aria-hidden className="h-4 w-4 text-brand-600" />
           <dt className="sr-only">Departure</dt>
-          <dd>{format(new Date(pool.departureAt), 'EEE, d MMM yyyy · h:mm a')}</dd>
+          <dd>{pool.departureAt ? format(new Date(pool.departureAt), 'EEE, d MMM yyyy · h:mm a') : 'Flexible timing'}</dd>
         </div>
         <div className="flex items-center gap-2">
           <CarFront aria-hidden className="h-4 w-4 text-brand-600" />
