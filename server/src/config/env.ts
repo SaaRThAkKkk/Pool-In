@@ -1,10 +1,16 @@
 import 'dotenv/config';
 import { z } from 'zod';
+import { DB_NAME_PATTERN, DEFAULT_POOLS_DB_NAME } from './databases.js';
 
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(4000),
   MONGODB_URI: z.string().min(1, 'MONGODB_URI is required'),
+  // Database (on the same cluster) that holds pools. Read directly by models/poolsDb.ts too.
+  POOLS_DB_NAME: z
+    .string()
+    .regex(DB_NAME_PATTERN, 'letters, digits, "_" and "-" only (max 60 characters)')
+    .default(DEFAULT_POOLS_DB_NAME),
   JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 characters'),
   JWT_EXPIRES_DAYS: z.coerce.number().int().positive().default(7),
   CLIENT_ORIGIN: z.string().default('http://localhost:5173'),

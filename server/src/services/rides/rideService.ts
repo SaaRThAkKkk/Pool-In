@@ -1,5 +1,5 @@
 import { ACTIVE_RIDE_STATUSES, RIDE_POLICY } from '../../config/rides.js';
-import { Ride, type RideDocument } from '../../models/Ride.js';
+import { Ride, toPoint, type RideDocument } from '../../models/Ride.js';
 import type { UserDocument } from '../../models/User.js';
 import { AppError, conflict, notFound } from '../../utils/errors.js';
 import { normalizeLabel, type CreateRideInput } from '../../validators/rides.js';
@@ -44,6 +44,8 @@ export async function createOwnerRide(
       ownerUserId: owner._id,
       origin: input.origin,
       destination: input.destination,
+      originPoint: toPoint(input.origin.coordinates),
+      destinationPoint: toPoint(input.destination.coordinates),
       departureAt: input.departureAt,
       vehicle: input.vehicle,
       passengerCapacity: input.seats,

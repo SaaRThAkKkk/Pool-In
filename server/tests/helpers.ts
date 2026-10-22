@@ -1,6 +1,7 @@
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import mongoose from 'mongoose';
 import { createApp, type AppConfig } from '../src/app.js';
+import { poolsDb } from '../src/models/poolsDb.js';
 import type { SmsProvider } from '../src/services/sms/index.js';
 import type { MapsProvider, Place, RouteResult } from '../src/services/maps/types.js';
 import type { LatLng } from '../src/utils/geo.js';
@@ -78,8 +79,9 @@ let mongod: MongoMemoryServer | undefined;
 export async function startTestDb() {
   mongod = await MongoMemoryServer.create();
   await mongoose.connect(mongod.getUri());
-  // Unique indexes must exist before concurrency tests rely on them.
+  // Unique indexes must exist before concurrency tests rely on them (users and pools are separate databases).
   await mongoose.syncIndexes();
+  await poolsDb.syncIndexes();
 }
 
 export async function stopTestDb() {
@@ -88,5 +90,6 @@ export async function stopTestDb() {
 }
 
 export async function clearDb() {
-  await Promise.all(Object.values(mongoose.connection.collections).map((c) => c.deleteMany({})));
+  const collections = [...Object.values(mongoose.connection.collections), ...Object.values(poolsDb.collections)];
+  await Promise.all(collections.map((c) => c.deleteMany({})));
 }
