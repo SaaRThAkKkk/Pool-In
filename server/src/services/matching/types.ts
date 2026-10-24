@@ -84,6 +84,23 @@ export interface OwnerMatch {
   evaluatedAt: string;
 }
 
+// A pool that is close to the passenger but does NOT fit what they asked for. Shown when nothing fits, so they can
+// see what exists and why it was not matched. Never presented as a match.
+export interface NearbyPool {
+  poolId: string;
+  route: { from: string; to: string };
+  vehicle: { category: string; make: string; model: string };
+  seatsAvailable: number;
+  fare: { amount: number; negotiable: boolean };
+  /** When the owner reaches their destination. */
+  arriveBy: string;
+  /** Straight-line distance from the passenger's start / destination to the pool's route. */
+  startGapKm: number;
+  endGapKm: number;
+  /** Why it does not fit. */
+  why: string[];
+}
+
 export type OwnerEvaluation =
   | { ok: true; match: OwnerMatch }
   | { ok: false; reason: RejectReason }

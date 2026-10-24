@@ -41,6 +41,8 @@ export interface ItineraryResult {
 export interface MapsProvider {
   /** Places in India matching the typed text; `bias` ranks results near the user first. */
   searchPlaces(query: string, bias?: LatLng): Promise<Place[]>;
+  /** The place at a point picked on the map. Always returns one (an unnamed spot is described by its coordinates). */
+  reversePlace(point: LatLng): Promise<Place>;
   getRoute(from: LatLng, to: LatLng, options?: RouteOptions): Promise<RouteResult>;
   /** Real road distance and time for a drive that visits every point in order. At least two points. */
   getItinerary(points: LatLng[]): Promise<ItineraryResult>;

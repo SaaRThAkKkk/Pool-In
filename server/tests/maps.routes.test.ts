@@ -20,6 +20,7 @@ beforeEach(async () => {
   await clearDb();
   maps.searches = [];
   maps.routeCalls = [];
+  maps.reverseCalls = [];
   maps.error = undefined;
 });
 
@@ -92,6 +93,39 @@ describe('GET /api/maps/places', () => {
     let last = 0;
     for (let i = 0; i < 151; i++) last = (await agent.get('/api/maps/places').query({ q: 'indira' })).status;
     expect(last).toBe(429);
+  });
+});
+
+describe('GET /api/maps/reverse', () => {
+  it('requires authentication', async () => {
+    const res = await request(app).get('/api/maps/reverse').query({ lat: 12.97, lng: 77.59 });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns the place at the pin', async () => {
+    const agent = await signedIn();
+    const res = await agent.get('/api/maps/reverse').query({ lat: '12.97', lng: '77.59' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.place).toMatchObject({ lat: 12.97, lng: 77.59 });
+    expect(maps.reverseCalls).toEqual([{ lat: 12.97, lng: 77.59 }]);
+  });
+
+  it.each([
+    ['outside India', { lat: '51.5', lng: '-0.12' }],
+    ['missing lng', { lat: '12.97' }],
+    ['not numbers', { lat: 'a', lng: 'b' }],
+  ])('rejects a pin %s', async (_label, query) => {
+    const agent = await signedIn();
+    const res = await agent.get('/api/maps/reverse').query(query);
+    expect(res.status).toBe(400);
+  });
+
+  it('is 502 when place lookup is down', async () => {
+    const agent = await signedIn();
+    maps.error = new AppError(502, 'MAPS_UNAVAILABLE', 'down');
+    const res = await agent.get('/api/maps/reverse').query({ lat: '12.97', lng: '77.59' });
+    expect(res.status).toBe(502);
   });
 });
 

@@ -15,5 +15,13 @@ export const searchPlacesSchema = z
   });
 export type SearchPlacesQuery = z.infer<typeof searchPlacesSchema>;
 
+// India's bounding box, so a pin dropped elsewhere is refused (the app only serves India for now).
+export const reverseSchema = z
+  .object({
+    lat: lat.refine((v) => v >= 6.7 && v <= 35.7, 'Choose a place in India'),
+    lng: lng.refine((v) => v >= 68.1 && v <= 97.4, 'Choose a place in India'),
+  });
+export type ReverseQuery = z.infer<typeof reverseSchema>;
+
 export const routeSchema = z.object({ fromLat: lat, fromLng: lng, toLat: lat, toLng: lng });
 export type RouteQuery = z.infer<typeof routeSchema>;

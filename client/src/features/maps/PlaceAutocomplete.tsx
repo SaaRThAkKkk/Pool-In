@@ -1,6 +1,6 @@
 import { useEffect, useId, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { CheckCircle2, LocateFixed, MapPin } from 'lucide-react'
+import { CheckCircle2, LocateFixed, Map as MapIcon, MapPin, X } from 'lucide-react'
 import { useDebouncedValue } from '../../lib/useDebouncedValue'
 import { searchPlaces, type LatLng, type Place } from './mapsApi'
 
@@ -25,6 +25,8 @@ interface Props {
   hint?: string
   /** Called with true when place search fails, so the form can fall back to typed text. */
   onServiceStatus?: (down: boolean) => void
+  /** When given, a "choose on the map" button is shown under the field. */
+  onPickOnMap?: () => void
 }
 
 // Bold the part of the title the user has typed.
@@ -42,7 +44,7 @@ function highlight(text: string, query: string): ReactNode {
 }
 
 export function PlaceAutocomplete(props: Props) {
-  const { id, label, placeholder, text, onTextChange, selected, onSelect, bias, currentLocation, error, hint, onServiceStatus } = props
+  const { id, label, placeholder, text, onTextChange, selected, onSelect, bias, currentLocation, error, hint, onServiceStatus, onPickOnMap } = props
   const listId = useId()
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(-1)
@@ -67,8 +69,11 @@ export function PlaceAutocomplete(props: Props) {
     else if (query.isSuccess) onServiceStatus?.(false)
   }, [query.isError, query.isSuccess, onServiceStatus])
 
+  // Offered while the field is empty, while it is being typed into, and when it holds some other place
+  // (so a start that was set to somewhere else can go back to "my current location").
   const showCurrent =
-    Boolean(currentLocation) && !confirmed && (typed === '' || 'current location'.startsWith(typed.toLowerCase()))
+    Boolean(currentLocation) &&
+    (confirmed ? selected?.id !== currentLocation?.id : typed === '' || 'current location'.startsWith(typed.toLowerCase()))
   const places = searching && query.data ? query.data : []
   const options: Place[] = [...(showCurrent && currentLocation ? [currentLocation] : []), ...places]
 
@@ -137,12 +142,33 @@ export function PlaceAutocomplete(props: Props) {
             setOpen(true)
             setActive(-1)
           }}
-          onFocus={() => setOpen(true)}
+          onFocus={(e) => {
+            setOpen(true)
+            e.target.select() // typing replaces the place that is there now
+          }}
+          onClick={() => setOpen(true)} // tapping a field that already has focus reopens the list
           onBlur={() => setOpen(false)}
           onKeyDown={onKeyDown}
-          className="field-input block w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-9 text-sm aria-[invalid=true]:border-red-500"
+          className="field-input block w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-16 text-sm aria-[invalid=true]:border-red-500"
         />
-        {confirmed && <CheckCircle2 aria-hidden className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-600" />}
+        {confirmed && <CheckCircle2 aria-hidden className="pointer-events-none absolute right-10 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-600" />}
+        {text !== '' && (
+          <button
+            type="button"
+            aria-label={`Clear ${label.toLowerCase()}`}
+            // Keep focus in the field so the suggestions open straight away.
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              onTextChange('')
+              setOpen(true)
+              setActive(-1)
+              document.getElementById(id)?.focus()
+            }}
+            className="absolute right-0 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 hover:text-slate-700"
+          >
+            <X aria-hidden className="h-4 w-4" />
+          </button>
+        )}
 
         {popupVisible && (
           // Options use onMouseDown so the input keeps focus (and does not close the list) while clicking.
@@ -161,7 +187,7 @@ export function PlaceAutocomplete(props: Props) {
                       choose(place)
                     }}
                     onMouseEnter={() => setActive(i)}
-                    className={`flex cursor-pointer items-start gap-2 px-3 py-2 text-sm ${i === active ? 'bg-brand-50' : ''}`}
+                    className={`flex cursor-pointer items-start gap-2 px-3 py-3 text-sm sm:py-2 ${i === active ? 'bg-brand-50' : ''}`}
                   >
                     {isCurrent ? (
                       <LocateFixed aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
@@ -184,6 +210,17 @@ export function PlaceAutocomplete(props: Props) {
           </div>
         )}
       </div>
+
+      {onPickOnMap && (
+        <button
+          type="button"
+          onClick={onPickOnMap}
+          className="mt-1 inline-flex min-h-10 items-center gap-1 text-sm font-medium text-brand-700 underline-offset-2 hover:underline sm:min-h-0 sm:text-xs"
+        >
+          <MapIcon aria-hidden className="h-4 w-4" />
+          Choose {label.toLowerCase()} on the map
+        </button>
+      )}
 
       {confirmed && (
         <p className="mt-1 text-xs text-emerald-700">Location confirmed</p>

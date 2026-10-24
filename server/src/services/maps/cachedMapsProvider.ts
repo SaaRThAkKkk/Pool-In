@@ -6,6 +6,7 @@ import type { ItineraryResult, MapsProvider, Place, RouteOptions, RouteResult } 
 // (they have strict fair-use limits). Failures are never cached.
 export class CachedMapsProvider implements MapsProvider {
   private readonly searches: TtlCache<Place[]>;
+  private readonly reverses: TtlCache<Place>;
   private readonly routes: TtlCache<RouteResult>;
   private readonly itineraries: TtlCache<ItineraryResult>;
 
@@ -14,6 +15,7 @@ export class CachedMapsProvider implements MapsProvider {
     now: () => number = Date.now,
   ) {
     this.searches = new TtlCache(10 * 60_000, 500, now);
+    this.reverses = new TtlCache(30 * 60_000, 500, now);
     this.routes = new TtlCache(30 * 60_000, 200, now);
     // Matching asks about the same few hops again and again while a search is running.
     this.itineraries = new TtlCache(30 * 60_000, 2000, now);
@@ -23,6 +25,10 @@ export class CachedMapsProvider implements MapsProvider {
     // Bias is rounded to about 10 km so nearby users share cache entries.
     const key = `${query.trim().toLowerCase()}|${bias ? `${bias.lat.toFixed(1)},${bias.lng.toFixed(1)}` : ''}`;
     return this.cached(this.searches, key, () => this.inner.searchPlaces(query, bias));
+  }
+
+  reversePlace(p: LatLng): Promise<Place> {
+    return this.cached(this.reverses, point(p), () => this.inner.reversePlace(p));
   }
 
   getRoute(from: LatLng, to: LatLng, options?: RouteOptions): Promise<RouteResult> {

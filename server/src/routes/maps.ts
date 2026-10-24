@@ -2,7 +2,14 @@ import { Router, type RequestHandler } from 'express';
 import { makeLimiter } from '../middleware/rateLimit.js';
 import { validateQuery } from '../middleware/validate.js';
 import type { MapsProvider } from '../services/maps/types.js';
-import { routeSchema, searchPlacesSchema, type RouteQuery, type SearchPlacesQuery } from '../validators/maps.js';
+import {
+  reverseSchema,
+  routeSchema,
+  searchPlacesSchema,
+  type ReverseQuery,
+  type RouteQuery,
+  type SearchPlacesQuery,
+} from '../validators/maps.js';
 
 export interface MapsRouterOptions {
   requireAuth: RequestHandler;
@@ -26,6 +33,16 @@ export function createMapsRouter({ requireAuth, maps, rateLimitEnabled }: MapsRo
       const { q, lat, lng } = res.locals.query as SearchPlacesQuery;
       const bias = lat !== undefined && lng !== undefined ? { lat, lng } : undefined;
       res.json({ success: true, data: { places: await maps.searchPlaces(q, bias) } });
+    },
+  );
+
+  router.get(
+    '/reverse',
+    makeLimiter(rateLimitEnabled, { windowMs: FIVE_MINUTES, limit: 100 }),
+    validateQuery(reverseSchema),
+    async (_req, res) => {
+      const { lat, lng } = res.locals.query as ReverseQuery;
+      res.json({ success: true, data: { place: await maps.reversePlace({ lat, lng }) } });
     },
   );
 

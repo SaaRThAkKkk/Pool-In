@@ -47,6 +47,7 @@ export function RoutePreviewMap({ start, end, path }: Props) {
       center={DEFAULT_CENTER}
       zoom={5}
       scrollWheelZoom={false}
+      dragging={!L.Browser.mobile} // on a phone a one-finger drag scrolls the page instead of trapping it in the map
       className="h-full w-full"
       aria-label="Map showing your route"
     >

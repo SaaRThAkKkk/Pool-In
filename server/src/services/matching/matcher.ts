@@ -2,8 +2,10 @@ import { MATCHING } from '../../config/matching.js';
 import { mapLimit } from '../../utils/mapLimit.js';
 import type { MapsProvider } from '../maps/types.js';
 import { evaluateOwnerCandidate } from './ownerMatching.js';
+import { toNearbyPool } from './nearbyPools.js';
 import { evaluatePassengerPair } from './passengerMatching.js';
 import type {
+  NearbyPool,
   OwnerMatch,
   OwnerPoolCandidate,
   OwnerSearchResult,
@@ -27,6 +29,7 @@ export interface FindOptions {
 export interface CandidateRepository {
   ownerPools(request: PassengerRequest, opts: { now: Date; createdAfter?: Date; poolIds?: string[] }): Promise<OwnerPoolCandidate[]>;
   peerRequests(request: PassengerRequest, opts: { now: Date }): Promise<PeerRequest[]>;
+  nearestOwnerPools(request: PassengerRequest, opts: { now: Date; limit: number }): Promise<OwnerPoolCandidate[]>;
 }
 
 export interface PoolMatcher {
@@ -34,6 +37,8 @@ export interface PoolMatcher {
   findOwnerMatches(request: PassengerRequest, opts?: FindOptions): Promise<OwnerSearchResult>;
   /** Scenario B: the passenger against other passengers' open requests (a proposed shared cab). */
   findPassengerMatches(request: PassengerRequest, opts?: { now?: Date }): Promise<PassengerSearchResult>;
+  /** The closest pools to the passenger that do NOT fit, each with the reasons why. For when nothing matches. */
+  findNearestOwnerPools(request: PassengerRequest, opts?: { now?: Date }): Promise<NearbyPool[]>;
   /** Checks one specific pool against a request, e.g. a pool that has only just been published. */
   evaluatePool(request: PassengerRequest, pool: OwnerPoolCandidate, now?: Date): Promise<OwnerMatch | null | 'ROUTING_ERROR'>;
 }
@@ -103,6 +108,19 @@ export class CarpoolMatcher implements PoolMatcher {
       routingFailures,
       rejected,
     };
+  }
+
+  async findNearestOwnerPools(request: PassengerRequest, opts: { now?: Date } = {}): Promise<NearbyPool[]> {
+    const now = opts.now ?? new Date();
+    const pools = await this.deps.candidates.nearestOwnerPools(request, { now, limit: MATCHING.NEAREST_POOLS });
+
+    const nearby = await mapLimit(pools, CONCURRENCY, async (pool) => {
+      const e = await evaluateOwnerCandidate(request, pool, { maps: this.deps.maps, now });
+      // One that actually fits is a match, not a near miss (the normal search shows it).
+      if (e.ok || e.reason === 'UNAVAILABLE' || e.reason === 'NO_ROUTE_DATA') return null;
+      return toNearbyPool(request, pool, e.reason);
+    });
+    return nearby.filter((n): n is NearbyPool => n !== null);
   }
 
   async evaluatePool(request: PassengerRequest, pool: OwnerPoolCandidate, now: Date = new Date()) {

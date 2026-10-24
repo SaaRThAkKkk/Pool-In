@@ -10,7 +10,7 @@ import type { PoolCabInput } from '../../validators/pools.js';
 import { toOwnerCandidate, toPassengerRequest } from '../matching/candidateRepository.js';
 import { luggageUnits } from '../matching/luggage.js';
 import { rankOwnerMatches, type PoolMatcher } from '../matching/matcher.js';
-import type { OwnerMatch, OwnerSearchResult, PassengerRequest, PassengerSearchResult } from '../matching/types.js';
+import type { NearbyPool, OwnerMatch, OwnerSearchResult, PassengerMatch, PassengerRequest, PassengerSearchResult } from '../matching/types.js';
 import type { SearchNotifier } from '../realtime/notifier.js';
 import { baseFields, checkArrivalWindow, duplicate, expireStaleSearches, isDuplicateKeyError, tooManyActive } from './poolCommon.js';
 
@@ -124,6 +124,7 @@ const merge = (current: OwnerMatch[], incoming: OwnerMatch[]) => {
 
 export interface SearchState {
   id: string;
+  /** SEARCHING while the five minutes run; OPEN once they are over (the request is then posted for other passengers). */
   status: string;
   windowSeconds: number;
   expiresAt: string | null;
@@ -131,30 +132,59 @@ export interface SearchState {
   matches: OwnerMatch[];
   /** DEGRADED: routing trouble meant some pools could not be checked this time. */
   matching: { status: 'OK' | 'DEGRADED' };
-  /** True once the window has ended and the user can turn this into a passenger-pooling request. */
-  canCreatePoolingRequest: boolean;
+  /** When no pool fits: the closest ones anyway, each with the reasons it does not fit. Never matches. */
+  nearest: NearbyPool[];
+  /** Other passengers whose open requests could share a cab with this one. Proposed groups, not confirmed rides. */
+  groups: PassengerMatch[];
+  /** True once the search ended with no pool and the request was posted so other passengers can find it. */
+  postedForOthers: boolean;
 }
 
-const toState = (doc: CabPoolDocument, matches: OwnerMatch[], degraded: boolean, now: Date): SearchState => ({
+const toState = (
+  doc: CabPoolDocument,
+  parts: { matches?: OwnerMatch[]; degraded?: boolean; nearest?: NearbyPool[]; groups?: PassengerMatch[] },
+  now: Date,
+): SearchState => ({
   id: doc._id.toString(),
   status: doc.status,
   windowSeconds: MATCHING.SEARCH_WINDOW_MS / 1000,
   expiresAt: doc.searchExpiresAt ? doc.searchExpiresAt.toISOString() : null,
   remainingSeconds:
     doc.status === 'SEARCHING' && doc.searchExpiresAt ? Math.max(0, Math.ceil((doc.searchExpiresAt.getTime() - now.getTime()) / 1000)) : 0,
-  matches,
-  matching: { status: degraded ? 'DEGRADED' : 'OK' },
-  canCreatePoolingRequest: doc.status === 'SEARCH_TIMED_OUT',
+  matches: parts.matches ?? [],
+  matching: { status: parts.degraded ? 'DEGRADED' : 'OK' },
+  nearest: parts.nearest ?? [],
+  groups: parts.groups ?? [],
+  postedForOthers: doc.status === 'OPEN' && Boolean(doc.searchStartedAt),
 });
 
-// The state of a running search. Each call checks only car-owner pools published since the last check
-// (never the whole database), merges what it finds, and drops matches whose pool has since filled up.
+// Everything the search screen shows besides the owner matches: the closest pools that do not fit (only when nothing
+// fits) and any other passengers whose open requests could share a cab. A failure here must not break the search.
+async function extras(request: PassengerRequest, hasMatches: boolean, deps: SearchDeps, now: Date) {
+  const [nearest, groups] = await Promise.all([
+    hasMatches ? [] : deps.matcher.findNearestOwnerPools(request, { now }).catch((err) => (logger.warn({ err }, 'nearest pools failed'), [])),
+    deps.matcher
+      .findPassengerMatches(request, { now })
+      .then((r) => r.matches)
+      .catch((err) => (logger.warn({ err }, 'passenger groups failed'), [])),
+  ]);
+  return { nearest, groups };
+}
+
+// The state of a search. While it runs, each call checks only car-owner pools published since the last check
+// (never the whole database), merges what it finds, and drops matches whose pool has since filled up. After the
+// five minutes the request is open to other passengers, and the owner pools are checked in full each time.
 export async function getSearch(user: UserDocument, id: string, deps: SearchDeps, now = new Date()): Promise<SearchState> {
   const doc = await loadOwn(user, id, now);
-  if (doc.status !== 'SEARCHING') return toState(doc, doc.status === 'SEARCH_TIMED_OUT' ? await stillAvailable(asMatches(doc), doc.peopleCount) : [], false, now);
+  if (doc.status !== 'SEARCHING' && doc.status !== 'OPEN') return toState(doc, {}, now);
 
   const request = toPassengerRequest(doc);
-  if (!request) return toState(doc, [], false, now);
+  if (!request) return toState(doc, {}, now);
+
+  if (doc.status === 'OPEN') {
+    const result = await deps.matcher.findOwnerMatches(request, { now });
+    return toState(doc, { matches: result.matches, degraded: result.status === 'DEGRADED', ...(await extras(request, result.matches.length > 0, deps, now)) }, now);
+  }
 
   const result = await deps.matcher.findOwnerMatches(request, { now, createdAfter: doc.searchCheckedAt ?? undefined });
   const matches = merge(await stillAvailable(asMatches(doc), doc.peopleCount), result.matches);
@@ -164,7 +194,7 @@ export async function getSearch(user: UserDocument, id: string, deps: SearchDeps
     // Only move the "already checked" mark forward when every pool was really checked.
     { $set: { matches, ...(result.status === 'OK' ? { searchCheckedAt: now } : {}) } },
   );
-  return toState(doc, matches, result.status === 'DEGRADED', now);
+  return toState(doc, { matches, degraded: result.status === 'DEGRADED', ...(await extras(request, matches.length > 0, deps, now)) }, now);
 }
 
 const asMatches = (doc: CabPoolDocument) => (doc.matches ?? []) as unknown as OwnerMatch[];
@@ -172,7 +202,7 @@ const asMatches = (doc: CabPoolDocument) => (doc.matches ?? []) as unknown as Ow
 export async function cancelSearch(user: UserDocument, id: string, now = new Date()): Promise<void> {
   await expireStaleSearches(user._id, now);
   const res = await CabPool.updateOne(
-    { _id: id, userId: user._id, status: { $in: ['SEARCHING', 'SEARCH_TIMED_OUT'] } },
+    { _id: id, userId: user._id, status: { $in: ['SEARCHING', 'SEARCH_TIMED_OUT', 'OPEN'] } },
     { status: 'CANCELLED', matches: [] },
   );
   if (res.matchedCount === 0) {

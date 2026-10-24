@@ -29,6 +29,12 @@ export async function searchPlaces(query: string, bias?: LatLng | null) {
   return (await api<{ places: Place[] }>(`/maps/places?${params}`)).places
 }
 
+// The place at a point picked on the map.
+export async function reversePlace(point: LatLng) {
+  const params = new URLSearchParams({ lat: String(point.lat), lng: String(point.lng) })
+  return (await api<{ place: Place }>(`/maps/reverse?${params}`)).place
+}
+
 export async function fetchRoute(from: LatLng, to: LatLng) {
   const params = new URLSearchParams({
     fromLat: String(from.lat),

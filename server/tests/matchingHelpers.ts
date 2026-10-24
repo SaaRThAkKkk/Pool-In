@@ -49,6 +49,10 @@ export class RoadMaps implements MapsProvider {
     return [];
   }
 
+  async reversePlace(point: LatLng): Promise<Place> {
+    return { id: 'pin', title: 'Pin', subtitle: '', label: 'Pin', ...point };
+  }
+
   async getRoute(from: LatLng, to: LatLng): Promise<RouteResult> {
     this.routeCalls.push([from, to]);
     if (this.failWith) throw this.failWith;

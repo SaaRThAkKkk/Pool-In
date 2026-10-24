@@ -126,6 +126,27 @@ export class MongoCandidateRepository implements CandidateRepository {
       .map(({ c }) => c);
   }
 
+  // The pools whose route passes closest to the passenger's start, however badly they fit (the caller explains why).
+  // Only pools that are open and have not left yet; the passenger's own pools are left out.
+  async nearestOwnerPools(request: PassengerRequest, opts: { now: Date; limit: number }): Promise<OwnerPoolCandidate[]> {
+    const docs = await CarOwnerPool.find({
+      status: { $in: ['OPEN', 'PARTIALLY_FILLED'] },
+      ...excluding('userId', request.userId),
+      arriveBy: { $gt: opts.now },
+      routeLine: {
+        $near: {
+          $geometry: { type: 'Point', coordinates: [request.origin.lng, request.origin.lat] },
+          $maxDistance: MATCHING.NEAREST_SEARCH_RADIUS_KM * 1000,
+        },
+      },
+    }).limit(opts.limit * 3);
+
+    return docs
+      .map(toOwnerCandidate)
+      .filter((c): c is OwnerPoolCandidate => c !== null)
+      .slice(0, opts.limit);
+  }
+
   // Other passengers' open requests (not searches still in their five-minute window) that could share a cab.
   async peerRequests(request: PassengerRequest, opts: { now: Date }): Promise<PeerRequest[]> {
     void opts;

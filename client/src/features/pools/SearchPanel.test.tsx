@@ -41,7 +41,9 @@ const state = (over: Partial<SearchState> = {}): SearchState => ({
   remainingSeconds: 290,
   matches: [],
   matching: { status: 'OK' },
-  canCreatePoolingRequest: false,
+  nearest: [],
+  groups: [],
+  postedForOthers: false,
   ...over,
 })
 
@@ -81,7 +83,7 @@ describe('SearchPanel', () => {
     renderPanel()
     expect(await screen.findByRole('heading', { name: /searching for a pool/i })).toBeInTheDocument()
     expect(await screen.findByRole('timer')).toHaveTextContent(/^4:[4-9]\d$/)
-    expect(await screen.findByText(/nothing yet/i)).toBeInTheDocument()
+    expect(await screen.findByText(/nothing fits yet/i)).toBeInTheDocument()
   })
 
   it('lists pools that turn up while searching', async () => {
@@ -106,19 +108,44 @@ describe('SearchPanel', () => {
     expect(calls).toContain('POST /pools/s1/cancel-search')
   })
 
-  it('offers the two choices when the five minutes are over and nothing fits', async () => {
-    stub(() => state({ status: 'SEARCH_TIMED_OUT', expiresAt: null, canCreatePoolingRequest: true }))
+  it('shows the closest pools that do not fit, with why, when nothing matches (never as matches)', async () => {
+    stub(() =>
+      state({
+        nearest: [
+          {
+            poolId: 'n1',
+            route: { from: 'Whitefield', to: 'Airport' },
+            vehicle: { category: 'SEDAN', make: 'Honda', model: 'City' },
+            seatsAvailable: 3,
+            fare: { amount: 250, negotiable: false },
+            arriveBy: '2030-01-01T10:00:00.000Z',
+            startGapKm: 4,
+            endGapKm: 0.2,
+            why: ['Its route passes about 4 km from your start, but you only want to travel 2 km to be picked up.'],
+          },
+        ],
+      }),
+    )
     renderPanel()
-    expect(await screen.findByRole('heading', { name: /search ended/i })).toBeInTheDocument()
-    expect(screen.getByText(/no car-owner pool fits your trip/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /create a passenger-pooling request/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /edit my search/i })).toBeInTheDocument()
-    expect(screen.queryByRole('timer')).not.toBeInTheDocument()
+    const list = await screen.findByRole('list', { name: /pools that do not fit/i })
+    expect(within(list).getByText(/doesn't fit your trip/i)).toBeInTheDocument()
+    expect(within(list).getByText(/about 4 km from your start, but you only want to travel 2 km/i)).toBeInTheDocument()
+    expect(within(list).getByText(/passes about 4 km from your start and 0\.2 km from your destination/i)).toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: /matching pools/i })).not.toBeInTheDocument()
+    expect(screen.queryByText(/best match/i)).not.toBeInTheDocument()
   })
 
-  it('shows proposed groups, never a confirmed ride, after a passenger-pooling request', async () => {
+  it('hides the near misses once a pool really fits', async () => {
+    const nearest = [{ poolId: 'n1', route: { from: 'A', to: 'B' }, vehicle: { category: 'SEDAN', make: 'Honda', model: 'City' }, seatsAvailable: 1, fare: { amount: 1, negotiable: false }, arriveBy: '2030-01-01T10:00:00.000Z', startGapKm: 1, endGapKm: 1, why: ['x'] }]
+    stub(() => state({ matches: [match('a', 88)], nearest }))
+    renderPanel()
+    await screen.findByRole('list', { name: /matching pools/i })
+    expect(screen.queryByRole('list', { name: /pools that do not fit/i })).not.toBeInTheDocument()
+  })
+
+  it('shows other passengers\' open requests as proposed groups, never a confirmed ride', async () => {
     const group = {
-      section: 'CAB',
+      section: 'CAB' as const,
       requestId: 'r2',
       score: 74,
       breakdown: [],
@@ -131,22 +158,40 @@ describe('SearchPanel', () => {
       rideMinutes: 30,
       note: 'A proposed group, not a confirmed ride.',
     }
-    const calls = stub(() => state({ status: 'SEARCH_TIMED_OUT', expiresAt: null, canCreatePoolingRequest: true }), {
-      '/pools/s1/pooling-request': () => json({ pool: { id: 's1' }, groups: { status: 'OK', matches: [group] } }, 201),
-    })
+    stub(() => state({ groups: [group] }))
     renderPanel()
-    await userEvent.click(await screen.findByRole('button', { name: /create a passenger-pooling request/i }))
-
-    expect(await screen.findByRole('heading', { name: /open to other passengers/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /other passengers heading your way/i })).toBeInTheDocument()
     expect(screen.getByText(/share a cab with 1 other traveller/i)).toBeInTheDocument()
     expect(screen.getByText(/not a confirmed ride/i)).toBeInTheDocument()
-    expect(calls).toContain('POST /pools/s1/pooling-request')
   })
 
+  it('when the five minutes end with no pool, says so with a joke and that the request is posted for others', async () => {
+    stub(() => state({ status: 'OPEN', expiresAt: null, postedForOthers: true }))
+    renderPanel()
+    expect(await screen.findByRole('heading', { name: /looks like everyone's got money/i })).toBeInTheDocument()
+    expect(screen.getByText(/nobody wants to pool at the moment/i)).toBeInTheDocument()
+    expect(screen.getByText(/your request is now posted/i)).toBeInTheDocument()
+    expect(screen.queryByRole('timer')).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /view my pools/i })).toHaveAttribute('href', '/pools')
+  })
+
+  it('does not make the joke if a pool did turn up', async () => {
+    stub(() => state({ status: 'OPEN', expiresAt: null, postedForOthers: true, matches: [match('a', 80)] }))
+    renderPanel()
+    expect(await screen.findByRole('list', { name: /matching pools/i })).toBeInTheDocument()
+    expect(screen.queryByText(/nobody wants to pool/i)).not.toBeInTheDocument()
+  })
+
+  it('lets the user cancel the posted request and edit the search', async () => {
+    const calls = stub(() => state({ status: 'OPEN', expiresAt: null, postedForOthers: true }))
+    const onEdit = renderPanel()
+    await userEvent.click(await screen.findByRole('button', { name: /cancel this request and edit my search/i }))
+    await waitFor(() => expect(onEdit).toHaveBeenCalled())
+    expect(calls).toContain('POST /pools/s1/cancel-search')
+  })
   it('says so when a cancelled search is opened', async () => {
     stub(() => state({ status: 'CANCELLED', expiresAt: null }))
     renderPanel()
     expect(await screen.findByRole('heading', { name: /search cancelled/i })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /create a passenger-pooling request/i })).not.toBeInTheDocument()
   })
 })

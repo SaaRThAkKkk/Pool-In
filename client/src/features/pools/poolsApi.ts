@@ -142,6 +142,21 @@ export interface PassengerMatch {
   note: string
 }
 
+// A pool close to the passenger that does NOT fit what they asked for, shown when nothing fits. Never a match.
+export interface NearbyPool {
+  poolId: string
+  route: { from: string; to: string }
+  vehicle: { category: string; make: string; model: string }
+  seatsAvailable: number
+  fare: { amount: number; negotiable: boolean }
+  arriveBy: string
+  /** Straight-line distance from the passenger's start / destination to the pool's route. */
+  startGapKm: number
+  endGapKm: number
+  /** Why it does not fit. */
+  why: string[]
+}
+
 export interface OwnerSearchInfo {
   /** DEGRADED: routing trouble meant some pools could not be checked, so the list may be incomplete. */
   status: 'OK' | 'DEGRADED' | 'NEEDS_COORDINATES'
@@ -157,19 +172,19 @@ export type PoolInResult =
 
 export interface SearchState {
   id: string
-  status: 'SEARCHING' | 'SEARCH_TIMED_OUT' | 'OPEN' | 'CANCELLED' | string
+  /** SEARCHING while the five minutes run; OPEN once they are over and the request is posted for other passengers. */
+  status: 'SEARCHING' | 'OPEN' | 'CANCELLED' | string
   windowSeconds: number
   expiresAt: string | null
   remainingSeconds: number
   matches: OwnerMatch[]
   matching: { status: 'OK' | 'DEGRADED' }
-  /** True once the five minutes are over and the user can ask to be matched with other passengers. */
-  canCreatePoolingRequest: boolean
-}
-
-export interface PassengerGroups {
-  status: 'OK' | 'DEGRADED' | 'NEEDS_COORDINATES'
-  matches: PassengerMatch[]
+  /** The closest pools that do not fit, with reasons. Only filled when nothing fits. */
+  nearest: NearbyPool[]
+  /** Other passengers whose open requests could share a cab: proposed groups, not confirmed rides. */
+  groups: PassengerMatch[]
+  /** The five minutes ended with no pool, so the request was posted for other passengers to find. */
+  postedForOthers: boolean
 }
 
 export const MY_POOLS_KEY = ['my-pools'] as const
@@ -187,17 +202,8 @@ export async function fetchSearch(id: string) {
   return (await api<{ search: SearchState }>(`/pools/${id}/search`)).search
 }
 
-export async function fetchPassengerMatches(id: string) {
-  return (await api<{ groups: PassengerGroups }>(`/pools/${id}/passenger-matches`)).groups
-}
-
 export function cancelSearch(id: string) {
   return api<Record<string, never>>(`/pools/${id}/cancel-search`, { method: 'POST' })
-}
-
-// After the search window ends: ask to be matched with other passengers instead.
-export function createPoolingRequest(id: string) {
-  return api<{ pool: CabPool; groups: PassengerGroups }>(`/pools/${id}/pooling-request`, { method: 'POST' })
 }
 
 export function formatFare(amount: number, currency = 'INR') {

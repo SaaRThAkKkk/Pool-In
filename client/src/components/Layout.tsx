@@ -1,7 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Car } from 'lucide-react'
+import { Car, Menu, X } from 'lucide-react'
 import { logoutUser } from '../features/auth/authApi'
 import { ME_KEY, useMe } from '../features/auth/useMe'
 
@@ -45,12 +45,12 @@ function AuthLinks() {
         <NavLink to="/dashboard" className="nav-link">
           Dashboard
         </NavLink>
-        <span className="hidden px-2 text-sm text-slate-500 sm:inline">{me.data.name}</span>
+        <span className="truncate px-3 py-1 text-sm text-slate-500 sm:px-2 sm:py-0">{me.data.name}</span>
         <button
           type="button"
           onClick={() => logout.mutate()}
           disabled={logout.isPending}
-          className="btn-secondary !px-3 !py-1.5 text-sm disabled:opacity-60"
+          className="btn-secondary !px-3 !py-1.5 text-sm disabled:opacity-60 max-sm:mt-1 max-sm:!py-3"
         >
           Log out
         </button>
@@ -63,7 +63,7 @@ function AuthLinks() {
       <NavLink to="/login" className="nav-link">
         Log in
       </NavLink>
-      <Link to="/register" className="btn-primary ml-2 !px-4 !py-1.5 text-sm">
+      <Link to="/register" className="btn-primary !px-4 !py-1.5 text-sm max-sm:mt-1 max-sm:!py-3 sm:ml-2">
         Sign up
       </Link>
     </>
@@ -72,9 +72,21 @@ function AuthLinks() {
 
 export function Layout() {
   const location = useLocation()
+  // On phones the links live in a drop-down menu; from `sm` up they sit in the header bar.
+  // It remembers the page it was opened on, so navigating anywhere closes it without an effect.
+  const [openOn, setOpenOn] = useState<string | null>(null)
+  const menuOpen = openOn === location.pathname
+  const setMenuOpen = (open: boolean) => setOpenOn(open ? location.pathname : null)
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpenOn(null)
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [menuOpen])
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-dvh flex-col">
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded focus:bg-white focus:p-2"
@@ -89,7 +101,21 @@ export function Layout() {
             </span>
             Pool-In
           </Link>
-          <nav aria-label="Main" className="flex items-center gap-1">
+          <button
+            type="button"
+            aria-label="Menu"
+            aria-expanded={menuOpen}
+            aria-controls="main-nav"
+            onClick={() => setMenuOpen(!menuOpen)}
+            className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-700 hover:bg-slate-100 sm:hidden"
+          >
+            {menuOpen ? <X aria-hidden className="h-6 w-6" /> : <Menu aria-hidden className="h-6 w-6" />}
+          </button>
+          <nav
+            id="main-nav"
+            aria-label="Main"
+            className={`${menuOpen ? 'flex' : 'hidden'} absolute inset-x-0 top-full flex-col items-stretch gap-1 border-b border-slate-200 bg-white/95 px-4 pb-4 pt-2 shadow-lg backdrop-blur-lg sm:static sm:flex sm:flex-row sm:items-center sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none sm:backdrop-blur-none`}
+          >
             <NavLink to="/how-it-works" className="nav-link">
               How it works
             </NavLink>
@@ -100,13 +126,13 @@ export function Layout() {
           </nav>
         </div>
       </header>
-      <main id="main" className="mx-auto w-full max-w-6xl flex-1 px-4 py-8">
+      <main id="main" className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:py-8">
         {/* Keyed by path so each page fades in on navigation. */}
         <div key={location.pathname} className="animate-fade-up">
           <Outlet />
         </div>
       </main>
-      <footer className="border-t border-slate-200/70 bg-white/70 py-4 text-center text-xs text-slate-500 backdrop-blur">
+      <footer className="border-t border-slate-200/70 bg-white/70 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 text-center text-xs text-slate-500 backdrop-blur">
         Pool-In coordinates shared rides. Matching and verification badges are not a guarantee of safety.
       </footer>
     </div>

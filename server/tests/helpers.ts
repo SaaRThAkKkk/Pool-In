@@ -9,6 +9,7 @@ import type { FindOptions, PoolMatcher } from '../src/services/matching/matcher.
 import type {
   OwnerMatch,
   OwnerPoolCandidate,
+  NearbyPool,
   OwnerSearchResult,
   PassengerMatch,
   PassengerRequest,
@@ -64,6 +65,13 @@ export class FakeMaps implements MapsProvider {
     return this.places;
   }
 
+  reverseCalls: LatLng[] = [];
+  async reversePlace(point: LatLng): Promise<Place> {
+    this.reverseCalls.push(point);
+    if (this.error) throw this.error;
+    return { ...this.places[0]!, lat: point.lat, lng: point.lng };
+  }
+
   async getRoute(from: LatLng, to: LatLng) {
     this.routeCalls.push({ from, to });
     if (this.error) throw this.error;
@@ -109,6 +117,14 @@ export class FakeMatcher implements PoolMatcher {
       routingFailures: this.ownerStatus === 'DEGRADED' ? 1 : 0,
       rejected: {},
     };
+  }
+
+  /** What the "closest pools that do not fit" search returns. */
+  nearby: NearbyPool[] = [];
+  nearbyCalls: PassengerRequest[] = [];
+  async findNearestOwnerPools(request: PassengerRequest): Promise<NearbyPool[]> {
+    this.nearbyCalls.push(request);
+    return this.nearby;
   }
 
   async findPassengerMatches(request: PassengerRequest): Promise<PassengerSearchResult> {

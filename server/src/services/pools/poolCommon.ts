@@ -44,11 +44,11 @@ export const baseFields = (user: UserDocument, i: RouteInput) => ({
   dedupeKey: dedupeKey(i),
 });
 
-// Searches whose five minutes are up are marked as timed out. Done lazily whenever searches are read or counted,
-// so no background job is needed.
+// When a search's five minutes are up with no car-owner pool, the request is posted as an open passenger-pooling
+// request, so other passengers can find it and match with it. Done lazily whenever searches are read or counted,
+// so no background job is needed. (SEARCH_TIMED_OUT is the older, intermediate state; it is treated the same way.)
 export async function expireStaleSearches(userId: Types.ObjectId | undefined, now: Date): Promise<void> {
-  await CabPool.updateMany(
-    { status: 'SEARCHING', searchExpiresAt: { $lte: now }, ...(userId ? { userId } : {}) },
-    { status: 'SEARCH_TIMED_OUT' },
-  );
+  const own = userId ? { userId } : {};
+  await CabPool.updateMany({ status: 'SEARCHING', searchExpiresAt: { $lte: now }, ...own }, { status: 'OPEN', matches: [] });
+  await CabPool.updateMany({ status: 'SEARCH_TIMED_OUT', ...own }, { status: 'OPEN', matches: [] });
 }

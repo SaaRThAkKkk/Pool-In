@@ -13,6 +13,20 @@ vi.mock('../maps/RoutePreviewMap', () => ({
   ),
 }))
 
+// The real picker is a Leaflet map. This stand-in lets a test "tap" a spot and confirm it through the same callbacks.
+vi.mock('../maps/MapPicker', () => ({
+  MapPicker: ({ title, onConfirm, onClose }: { title: string; onConfirm: (p: unknown) => void; onClose: () => void }) => (
+    <div role="dialog" aria-label={title}>
+      <button type="button" onClick={() => onConfirm({ id: 'pin:1', title: 'Pinned spot', subtitle: 'Bengaluru', label: 'Pinned spot, Bengaluru', lat: 12.93, lng: 77.61 })}>
+        use fake pin
+      </button>
+      <button type="button" onClick={onClose}>
+        close fake map
+      </button>
+    </div>
+  ),
+}))
+
 // No real sockets in these tests: the page also polls, and the socket behaviour is tested on its own.
 vi.mock('../../lib/socket', () => ({ useServerEvent: vi.fn() }))
 
@@ -38,7 +52,9 @@ const runningSearch = () => ({
   remainingSeconds: 290,
   matches: [],
   matching: { status: 'OK' },
-  canCreatePoolingRequest: false,
+  nearest: [],
+  groups: [],
+  postedForOthers: false,
 })
 const clientMatch = (poolId: string, score: number) => ({
   section: 'CAR_OWNER',
@@ -217,6 +233,102 @@ describe('PoolInPage: the shared trip questions', () => {
     await u.type(startField(), 'Whitefield')
     expect(startField()).toHaveValue('Whitefield')
     expect(screen.queryByText(/location confirmed/i)).not.toBeInTheDocument()
+  })
+})
+
+describe('PoolInPage: changing the starting location', () => {
+  it('offers the suggestions list on focus, with "my current location" when the start is something else', async () => {
+    stubApi()
+    stubGeolocation()
+    const u = userEvent.setup()
+    renderPage()
+    await ready()
+
+    await u.click(screen.getByRole('button', { name: /clear starting location/i }))
+    expect(startField()).toHaveValue('')
+    expect(await screen.findByRole('option', { name: /my current location/i })).toBeInTheDocument()
+
+    await u.type(startField(), 'indira')
+    await u.click(await screen.findByRole('option', { name: /indiranagar/i }))
+    expect(startField()).toHaveValue(indiranagar.label)
+    expect(screen.getByTestId('route-map')).toHaveTextContent('start:Indiranagar')
+
+    // Back to the live location from the same list.
+    await u.click(startField())
+    await u.click(await screen.findByRole('option', { name: /my current location/i }))
+    expect(startField()).toHaveValue('Current location')
+  })
+
+  it('selects the text on focus so typing replaces the current location', async () => {
+    stubApi()
+    stubGeolocation()
+    const u = userEvent.setup()
+    renderPage()
+    await ready()
+
+    await u.click(startField())
+    await u.keyboard('indira')
+    await u.click(await screen.findByRole('option', { name: /indiranagar/i }))
+    expect(startField()).toHaveValue(indiranagar.label)
+  })
+
+  it('sends the place chosen as the start', async () => {
+    const api = stubApi()
+    stubGeolocation()
+    const u = userEvent.setup()
+    renderPage()
+    await ready()
+
+    await u.click(screen.getByRole('button', { name: /clear starting location/i }))
+    await u.type(startField(), 'indira')
+    await u.click(await screen.findByRole('option', { name: /indiranagar/i }))
+    await fillTrip(u)
+    await ownMode(u)
+    await fillOwner(u)
+    await submit(u)
+
+    await screen.findByRole('heading', { name: /your pool is created/i })
+    expect(api.posted().origin).toEqual({ label: indiranagar.label, coordinates: { lat: 12.9784, lng: 77.6408 } })
+  })
+
+  it('lets the start be chosen on the map', async () => {
+    const api = stubApi()
+    stubGeolocation()
+    const u = userEvent.setup()
+    renderPage()
+    await ready()
+
+    await u.click(screen.getByRole('button', { name: /choose starting location on the map/i }))
+    expect(screen.getByRole('dialog', { name: /choose your starting location/i })).toBeInTheDocument()
+    await u.click(screen.getByRole('button', { name: /use fake pin/i }))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(startField()).toHaveValue('Pinned spot, Bengaluru')
+    expect(screen.getByTestId('route-map')).toHaveTextContent('start:Pinned spot, Bengaluru')
+
+    await fillTrip(u)
+    await ownMode(u)
+    await fillOwner(u)
+    await submit(u)
+    await screen.findByRole('heading', { name: /your pool is created/i })
+    expect(api.posted().origin).toEqual({ label: 'Pinned spot, Bengaluru', coordinates: { lat: 12.93, lng: 77.61 } })
+  })
+
+  it('lets the destination be chosen on the map too, and closing the map changes nothing', async () => {
+    stubApi()
+    stubGeolocation()
+    const u = userEvent.setup()
+    renderPage()
+    await ready()
+
+    await u.click(screen.getByRole('button', { name: /choose destination on the map/i }))
+    await u.click(screen.getByRole('button', { name: /close fake map/i }))
+    expect(destField()).toHaveValue('')
+
+    await u.click(screen.getByRole('button', { name: /choose destination on the map/i }))
+    await u.click(screen.getByRole('button', { name: /use fake pin/i }))
+    expect(destField()).toHaveValue('Pinned spot, Bengaluru')
+    expect(startField()).toHaveValue('Current location')
   })
 })
 

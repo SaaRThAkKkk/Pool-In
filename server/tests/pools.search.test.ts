@@ -74,7 +74,7 @@ beforeAll(startTestDb);
 afterAll(stopTestDb);
 beforeEach(async () => {
   await clearDb();
-  Object.assign(matcher, { ownerCalls: [], peerCalls: [], poolChecks: [], ownerMatches: [], groups: [], ownerStatus: 'OK', poolResult: null });
+  Object.assign(matcher, { ownerCalls: [], peerCalls: [], poolChecks: [], nearbyCalls: [], nearby: [], ownerMatches: [], groups: [], ownerStatus: 'OK', poolResult: null });
   notifier.sent = [];
 });
 
@@ -95,7 +95,7 @@ describe('GET /api/pools/:id/search', () => {
     const id = await startSearch(agent);
     const { search } = (await agent.get(`/api/pools/${id}/search`)).body.data;
 
-    expect(search).toMatchObject({ id, status: 'SEARCHING', windowSeconds: 300, matches: [], canCreatePoolingRequest: false });
+    expect(search).toMatchObject({ id, status: 'SEARCHING', windowSeconds: 300, matches: [], nearest: [], groups: [], postedForOthers: false });
     expect(search.remainingSeconds).toBeLessThanOrEqual(300);
     expect(search.remainingSeconds).toBeGreaterThan(290);
     expect(search.matching.status).toBe('OK');
@@ -198,16 +198,65 @@ describe('GET /api/pools/:id/search', () => {
     expect(search.matches[0].seatsAvailable).toBe(2); // refreshed from the live record
   });
 
-  it('ends after five minutes: marked timed out, no more searching, and the user can act', async () => {
+  it('ends after five minutes with no pool: the request is posted open for other passengers', async () => {
     const { agent } = await signUp();
     const id = await startSearch(agent);
     await expireSearch(id);
-    const callsBefore = matcher.ownerCalls.length;
 
     const { search } = (await agent.get(`/api/pools/${id}/search`)).body.data;
-    expect(search).toMatchObject({ status: 'SEARCH_TIMED_OUT', remainingSeconds: 0, canCreatePoolingRequest: true });
-    expect(matcher.ownerCalls).toHaveLength(callsBefore); // it did not search again
-    expect((await CabPool.findById(id))!.status).toBe('SEARCH_TIMED_OUT');
+    expect(search).toMatchObject({ status: 'OPEN', remainingSeconds: 0, postedForOthers: true });
+    expect((await CabPool.findById(id))!.status).toBe('OPEN');
+    // From now on it is an open request, so another passenger's matching can find it.
+    expect(matcher.ownerCalls.at(-1)!.opts?.createdAfter).toBeUndefined(); // owner pools are checked in full, not incrementally
+  });
+
+  it('when nothing fits, also returns the closest pools that do not, and never as matches', async () => {
+    const { agent } = await signUp();
+    const id = await startSearch(agent);
+    matcher.nearby = [
+      {
+        poolId: 'near-1',
+        route: { from: 'Whitefield', to: 'Airport' },
+        vehicle: { category: 'SEDAN', make: 'Honda', model: 'City' },
+        seatsAvailable: 3,
+        fare: { amount: 250, negotiable: false },
+        arriveBy: hoursFromNow(48),
+        startGapKm: 4,
+        endGapKm: 0.2,
+        why: ['Its route passes about 4 km from your start, but you only want to travel 2 km to be picked up.'],
+      },
+    ];
+
+    const { search } = (await agent.get(`/api/pools/${id}/search`)).body.data;
+    expect(search.matches).toEqual([]);
+    expect(search.nearest).toHaveLength(1);
+    expect(search.nearest[0]).toMatchObject({ poolId: 'near-1', startGapKm: 4 });
+  });
+
+  it('does not look for near misses when a pool really fits', async () => {
+    const owner = await signUp('owner');
+    const { agent } = await signUp();
+    const pool = await publishPool(owner.agent);
+    const id = await startSearch(agent);
+    matcher.ownerMatches = [fakeOwnerMatch(pool, 80)];
+    matcher.nearbyCalls = [];
+
+    const { search } = (await agent.get(`/api/pools/${id}/search`)).body.data;
+    expect(search.matches).toHaveLength(1);
+    expect(search.nearest).toEqual([]);
+    expect(matcher.nearbyCalls).toHaveLength(0);
+  });
+
+  it('shows other passengers whose open requests could share a cab, as proposed groups', async () => {
+    const { agent } = await signUp();
+    const id = await startSearch(agent);
+    matcher.groups = [fakeGroup('someone-else')];
+
+    const { search } = (await agent.get(`/api/pools/${id}/search`)).body.data;
+    expect(search.groups).toHaveLength(1);
+    expect(search.groups[0]).toMatchObject({ requestId: 'someone-else' });
+    expect(search.groups[0].note).toMatch(/not a confirmed ride/i);
+    expect(matcher.peerCalls.at(-1)).toMatchObject({ id }); // never matched with itself
   });
 
   it('keeps showing matches found before the end, while their pool is still available', async () => {
@@ -220,28 +269,32 @@ describe('GET /api/pools/:id/search', () => {
 
     await expireSearch(id);
     const { search } = (await agent.get(`/api/pools/${id}/search`)).body.data;
-    expect(search.status).toBe('SEARCH_TIMED_OUT');
+    expect(search.status).toBe('OPEN');
     expect(search.matches.map((m: { poolId: string }) => m.poolId)).toEqual([pool]);
   });
 });
 
 describe('a search that has ended shows in My pools, and does not block a new one', () => {
-  it('lists the timed-out search with its real status', async () => {
+  it('lists the ended search as an open request', async () => {
     const { agent } = await signUp();
     const id = await startSearch(agent);
     await expireSearch(id);
 
     const mine = (await agent.get('/api/pools/mine')).body.data.pools;
-    expect(mine.find((p: { id: string }) => p.id === id).status).toBe('SEARCH_TIMED_OUT');
+    expect(mine.find((p: { id: string }) => p.id === id).status).toBe('OPEN');
   });
 
-  it('while it runs, the same search cannot be started twice; once it has ended it can', async () => {
+  it('the same search cannot be started twice, even after it ended and was posted; cancelling it frees it', async () => {
     const { agent } = await signUp();
     const body = poolCab();
-    expect((await agent.post('/api/pools').send(body)).status).toBe(201);
+    const first = await agent.post('/api/pools').send(body);
+    expect(first.status).toBe(201);
     expect((await agent.post('/api/pools').send(body)).status).toBe(409);
 
     await CabPool.updateMany({}, { searchExpiresAt: new Date(Date.now() - 1000) });
+    expect((await agent.post('/api/pools').send(body)).status).toBe(409); // already posted as an open request
+
+    await agent.post(`/api/pools/${first.body.data.pool.id}/cancel-search`);
     expect((await agent.post('/api/pools').send(body)).status).toBe(201);
   });
 });

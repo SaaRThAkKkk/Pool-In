@@ -68,6 +68,23 @@ describe('navigation and protected routes', () => {
     expect(screen.queryByRole('button', { name: /log out/i })).not.toBeInTheDocument()
   })
 
+  it('has a phone menu button that opens and closes the links, and closes after choosing one', async () => {
+    mockBackend({ user: null })
+    const u = userEvent.setup()
+    renderAt('/')
+    const menu = await screen.findByRole('button', { name: /^menu$/i })
+    expect(menu).toHaveAttribute('aria-expanded', 'false')
+
+    await u.click(menu)
+    expect(menu).toHaveAttribute('aria-expanded', 'true')
+    await u.keyboard('{Escape}')
+    expect(menu).toHaveAttribute('aria-expanded', 'false')
+
+    await u.click(menu)
+    await u.click(screen.getByRole('link', { name: /^safety$/i }))
+    expect(await screen.findByRole('button', { name: /^menu$/i })).toHaveAttribute('aria-expanded', 'false')
+  })
+
   it('sends a signed-out visitor from a protected page to the login page', async () => {
     mockBackend({ user: null })
     renderAt('/dashboard')

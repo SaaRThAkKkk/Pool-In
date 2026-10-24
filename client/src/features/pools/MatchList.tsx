@@ -1,6 +1,6 @@
 import { format } from 'date-fns'
 import { ArrowRight, CarFront, Clock, MapPin, Route, Users } from 'lucide-react'
-import { categoryInfo, formatFare, type OwnerMatch, type PassengerMatch } from './poolsApi'
+import { categoryInfo, formatFare, type NearbyPool, type OwnerMatch, type PassengerMatch } from './poolsApi'
 
 const scoreColor = (score: number) =>
   score >= 80
@@ -105,6 +105,51 @@ export function OwnerMatchList({ matches }: { matches: OwnerMatch[] }) {
         </li>
       ))}
     </ol>
+  )
+}
+
+// The closest pools when nothing fits. Clearly not matches: no score, and each says why it does not fit.
+export function NearbyPoolList({ pools }: { pools: NearbyPool[] }) {
+  return (
+    <section aria-label="Closest pools" className="space-y-3">
+      <div>
+        <h2 className="text-lg font-bold">The closest pools right now</h2>
+        <p className="text-sm text-slate-600">These don't fit what you asked for, but they're the nearest we found. You could loosen your limits or time and search again.</p>
+      </div>
+      <ul aria-label="Pools that do not fit" className="space-y-3">
+        {pools.map((p) => (
+          <li key={p.poolId} className="rounded-2xl border border-dashed border-slate-300 bg-white/80 p-5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Doesn't fit your trip</p>
+            <h3 className="mt-1 flex flex-wrap items-center gap-2 text-base font-semibold">
+              <span>{p.route.from}</span>
+              <ArrowRight aria-hidden className="h-4 w-4 text-slate-400" />
+              <span>{p.route.to}</span>
+            </h3>
+            <p className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-600">
+              <span className="inline-flex items-center gap-1">
+                <CarFront aria-hidden className="h-4 w-4 text-slate-500" />
+                {p.vehicle.make} {p.vehicle.model}
+              </span>
+              <span>
+                {p.seatsAvailable} seat{p.seatsAvailable === 1 ? '' : 's'} free
+              </span>
+              <span>
+                {formatFare(p.fare.amount)} per person · {p.fare.negotiable ? 'Negotiable' : 'Fixed'}
+              </span>
+              <span>Arrives about {time(p.arriveBy)}</span>
+            </p>
+            <p className="mt-2 text-sm text-slate-600">
+              Its route passes about {km(p.startGapKm)} from your start and {km(p.endGapKm)} from your destination (in a straight line).
+            </p>
+            <ul aria-label="Why it does not fit" className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-900">
+              {p.why.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 

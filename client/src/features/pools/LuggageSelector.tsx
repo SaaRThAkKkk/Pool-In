@@ -20,7 +20,7 @@ export function LuggageSelector({ value, onChange }: Props) {
   const total = LUGGAGE_TYPES.reduce((sum, t) => sum + value[t.key], 0)
   const set = (key: LuggageKey, n: number) => onChange({ ...value, [key]: Math.min(MAX_LUGGAGE_PER_TYPE, Math.max(0, n)) })
   const stepper =
-    'flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 transition duration-150 hover:border-brand-500 hover:bg-brand-50 hover:text-brand-700 active:scale-90 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-slate-300 disabled:hover:bg-white'
+    'flex h-11 w-11 cursor-pointer sm:h-8 sm:w-8 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 transition duration-150 hover:border-brand-500 hover:bg-brand-50 hover:text-brand-700 active:scale-90 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-slate-300 disabled:hover:bg-white'
 
   return (
     <div>

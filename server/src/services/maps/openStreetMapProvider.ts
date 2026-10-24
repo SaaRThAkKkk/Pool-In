@@ -8,6 +8,7 @@ import type { ItineraryResult, MapsProvider, Place, RouteOptions, RouteResult } 
 const INDIA_BBOX = '68.1,6.7,97.4,35.7';
 const MAX_RESULTS = 8;
 const REQUEST_TIMEOUT_MS = 6000;
+const REVERSE_RADIUS_KM = 1;
 
 export interface OsmProviderConfig {
   photonUrl: string;
@@ -82,6 +83,25 @@ function describe(p: PhotonProps): { title: string; subtitle: string } | null {
   return { title, subtitle: context.slice(0, 3).join(', ') };
 }
 
+// One Photon feature as a Place, or null when it is malformed, outside India or has no usable name.
+function toPlace(raw: unknown): Place | null {
+  const f = photonFeature.safeParse(raw);
+  if (!f.success) return null;
+  const { properties: p, geometry } = f.data;
+  if (p.countrycode && p.countrycode.toUpperCase() !== 'IN') return null;
+
+  const text = describe(p);
+  if (!text) return null;
+  const [lng, lat] = geometry.coordinates;
+  return {
+    id: p.osm_type && p.osm_id ? `${p.osm_type}${p.osm_id}` : `${lat.toFixed(5)},${lng.toFixed(5)}`,
+    ...text,
+    label: text.subtitle ? `${text.title}, ${text.subtitle}` : text.title,
+    lat,
+    lng,
+  };
+}
+
 export class OpenStreetMapProvider implements MapsProvider {
   private readonly fetchFn: typeof fetch;
 
@@ -128,29 +148,44 @@ export class OpenStreetMapProvider implements MapsProvider {
     const seen = new Set<string>();
     const places: Place[] = [];
     for (const raw of parsed.data.features) {
-      const f = photonFeature.safeParse(raw);
-      if (!f.success) continue;
-      const { properties: p, geometry } = f.data;
-      if (p.countrycode && p.countrycode.toUpperCase() !== 'IN') continue;
-
-      const text = describe(p);
-      if (!text) continue;
-      const label = text.subtitle ? `${text.title}, ${text.subtitle}` : text.title;
-      const key = label.toLowerCase();
+      const place = toPlace(raw);
+      if (!place) continue;
+      const key = place.label.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
-
-      const [lng, lat] = geometry.coordinates;
-      places.push({
-        id: p.osm_type && p.osm_id ? `${p.osm_type}${p.osm_id}` : `${lat.toFixed(5)},${lng.toFixed(5)}`,
-        ...text,
-        label,
-        lat,
-        lng,
-      });
+      places.push(place);
       if (places.length >= MAX_RESULTS) break;
     }
     return places;
+  }
+
+  // The place under a point picked on the map. Photon names the nearest feature (within a short radius);
+  // when nothing is named there, the point itself is returned so the user can still choose it.
+  async reversePlace(point: LatLng): Promise<Place> {
+    const url = new URL('/reverse', this.cfg.photonUrl);
+    url.searchParams.set('lat', String(point.lat));
+    url.searchParams.set('lon', String(point.lng));
+    url.searchParams.set('limit', '1');
+    url.searchParams.set('radius', String(REVERSE_RADIUS_KM));
+    url.searchParams.set('lang', 'en');
+
+    const parsed = photonResponse.safeParse(await this.getJson(url.toString()));
+    if (!parsed.success) {
+      logger.warn('maps: unexpected reverse geocoder response shape');
+      throw unavailable();
+    }
+    const named = parsed.data.features.map(toPlace).find((p): p is Place => p !== null);
+    // The pin itself is what the user chose, so keep its exact position and only borrow the name.
+    return named
+      ? { ...named, lat: point.lat, lng: point.lng, id: `pin:${named.id}` }
+      : {
+          id: `pin:${point.lat.toFixed(5)},${point.lng.toFixed(5)}`,
+          title: 'Pinned location',
+          subtitle: `${point.lat.toFixed(4)}, ${point.lng.toFixed(4)}`,
+          label: `Pinned location (${point.lat.toFixed(4)}, ${point.lng.toFixed(4)})`,
+          lat: point.lat,
+          lng: point.lng,
+        };
   }
 
   async getRoute(from: LatLng, to: LatLng, options: RouteOptions = {}): Promise<RouteResult> {

@@ -31,6 +31,10 @@ export const MATCHING = {
   POINTS_PER_END: 3,
   /** How many ranked matches are returned. */
   MAX_RESULTS: 5,
+  /** When nothing fits, this many of the closest pools are still shown (clearly marked as not fitting). */
+  NEAREST_POOLS: 3,
+  /** The closest pools are only looked for within this distance of the passenger's start. */
+  NEAREST_SEARCH_RADIUS_KM: 100,
   /** Stored routes are simplified to at most this many points. */
   ROUTE_MAX_POINTS: 600,
 

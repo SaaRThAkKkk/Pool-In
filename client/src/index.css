@@ -43,6 +43,33 @@
 
 html {
   scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* Phones: no grey flash on tap, no double-tap-zoom delay, and never a sideways page scroll. */
+body {
+  -webkit-tap-highlight-color: transparent;
+  overflow-x: clip;
+}
+a,
+button,
+summary,
+[role='button'],
+[role='option'],
+input,
+select,
+textarea {
+  touch-action: manipulation;
+}
+
+/* iOS Safari zooms the whole page when a field with text smaller than 16px gets focus. */
+@media (max-width: 639px) {
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
 }
 
 body {
@@ -74,11 +101,11 @@ body {
     @apply transition duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-brand-500/10;
   }
   .nav-link {
-    @apply relative rounded px-3 py-2 text-sm font-medium text-slate-600 transition-colors duration-200 hover:text-slate-900;
+    @apply relative rounded px-3 py-2 text-sm font-medium text-slate-600 transition-colors duration-200 hover:text-slate-900 max-sm:py-3 max-sm:text-base;
   }
   .nav-link::after {
     content: '';
-    @apply absolute inset-x-3 -bottom-0.5 h-0.5 origin-left scale-x-0 rounded-full bg-brand-600 transition-transform duration-300;
+    @apply absolute inset-x-3 bottom-1 sm:-bottom-0.5 h-0.5 origin-left scale-x-0 rounded-full bg-brand-600 transition-transform duration-300;
   }
   .nav-link:hover::after,
   .nav-link[aria-current='page']::after {

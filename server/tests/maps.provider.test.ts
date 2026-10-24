@@ -125,6 +125,42 @@ describe('OpenStreetMapProvider.searchPlaces', () => {
   });
 });
 
+describe('OpenStreetMapProvider.reversePlace', () => {
+  const pin = { lat: 12.97, lng: 77.59 };
+
+  it('names the spot from the nearest feature but keeps the exact pin position', async () => {
+    const fetchFn = vi.fn(async () => json({ features: [photonSample.features[0]] }));
+    const place = await provider(fetchFn).reversePlace(pin);
+
+    expect(place).toMatchObject({ title: 'Indira Gandhi International Airport', lat: 12.97, lng: 77.59 });
+    expect(place.label).toContain('Indira Gandhi International Airport');
+    const [url] = fetchFn.mock.calls[0] as unknown as [string];
+    const q = new URL(url).searchParams;
+    expect(new URL(url).pathname).toBe('/reverse');
+    expect(q.get('lat')).toBe('12.97');
+    expect(q.get('lon')).toBe('77.59');
+    expect(q.get('limit')).toBe('1');
+  });
+
+  it('describes an unnamed spot by its coordinates instead of failing', async () => {
+    const place = await provider(vi.fn(async () => json({ features: [] }))).reversePlace(pin);
+    expect(place).toMatchObject({ title: 'Pinned location', lat: 12.97, lng: 77.59 });
+    expect(place.label).toBe('Pinned location (12.9700, 77.5900)');
+  });
+
+  it('ignores a nearest feature that is in another country', async () => {
+    const place = await provider(vi.fn(async () => json({ features: [photonSample.features[2]] }))).reversePlace(pin);
+    expect(place.title).toBe('Pinned location');
+  });
+
+  it('is a 502 when the geocoder is down', async () => {
+    await expect(provider(vi.fn(async () => json({}, 503))).reversePlace(pin)).rejects.toMatchObject({
+      status: 502,
+      code: 'MAPS_UNAVAILABLE',
+    });
+  });
+});
+
 describe('OpenStreetMapProvider.getRoute', () => {
   const from = { lat: 12.9784, lng: 77.6408 };
   const to = { lat: 13.1986, lng: 77.7064 };
@@ -240,6 +276,7 @@ describe('CachedMapsProvider', () => {
   function counting() {
     const inner: MapsProvider = {
       searchPlaces: vi.fn(async (q: string) => [{ id: q, title: q, subtitle: '', label: q, lat: 1, lng: 2 }]),
+      reversePlace: vi.fn(async (p) => ({ id: 'r', title: 'r', subtitle: '', label: 'r', ...p })),
       getRoute: vi.fn(async () => ({ distanceMeters: 1, durationSeconds: 2, path: [[1, 2] as [number, number]] })),
       getItinerary: vi.fn(async () => ({ distanceMeters: 3, durationSeconds: 4, legs: [{ distanceMeters: 3, durationSeconds: 4 }] })),
     };

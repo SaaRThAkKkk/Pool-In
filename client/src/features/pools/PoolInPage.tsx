@@ -8,6 +8,7 @@ import { z } from 'zod'
 import { ApiError } from '../../lib/api'
 import { ME_KEY } from '../auth/useMe'
 import { useLiveLocation } from '../location/useLiveLocation'
+import { MapPicker } from '../maps/MapPicker'
 import { PlaceAutocomplete } from '../maps/PlaceAutocomplete'
 import { RoutePreviewMap } from '../maps/RoutePreviewMap'
 import { fetchRoute, formatDistance, formatDuration, type Place } from '../maps/mapsApi'
@@ -246,6 +247,8 @@ export function PoolInPage() {
   const [startChoice, setStartChoice] = useState<Place | 'auto' | null>('auto')
   const [endPlace, setEndPlace] = useState<Place | null>(null)
   const [placesDown, setPlacesDown] = useState(false)
+  // Which end is being chosen on the map right now.
+  const [picking, setPicking] = useState<'start' | 'end' | null>(null)
   const [luggage, setLuggage] = useState<Luggage>(EMPTY_LUGGAGE)
   const [formError, setFormError] = useState<string | null>(null)
   const [result, setResult] = useState<PoolInResult | null>(null)
@@ -437,6 +440,24 @@ export function PoolInPage() {
 
   return (
     <>
+      {picking && (
+        <MapPicker
+          title={picking === 'start' ? 'Choose your starting location' : 'Choose your destination'}
+          center={(picking === 'start' ? startPlace : endPlace) ?? currentPlace}
+          onClose={() => setPicking(null)}
+          onConfirm={(place) => {
+            // Same order as picking from the suggestions: the text first, the chosen place last.
+            if (picking === 'start') {
+              setValue('startText', place.label, { shouldValidate: true })
+              setStartChoice(place)
+            } else {
+              setValue('endText', place.label, { shouldValidate: true })
+              setEndPlace(place)
+            }
+            setPicking(null)
+          }}
+        />
+      )}
       {resultView && <div className="mx-auto max-w-3xl">{resultView}</div>}
       <div hidden={result !== null}>
         <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-2">
@@ -465,6 +486,7 @@ export function PoolInPage() {
                       currentLocation={currentPlace}
                       error={errors.startText?.message}
                       onServiceStatus={setPlacesDown}
+                      onPickOnMap={() => setPicking('start')}
                     />
                   )}
                 />
@@ -486,6 +508,7 @@ export function PoolInPage() {
                       bias={currentPlace}
                       error={errors.endText?.message}
                       onServiceStatus={setPlacesDown}
+                      onPickOnMap={() => setPicking('end')}
                     />
                   )}
                 />

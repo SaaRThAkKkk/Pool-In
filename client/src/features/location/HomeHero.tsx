@@ -12,7 +12,7 @@ export function HomeHero() {
   return (
     <section
       aria-label="Start a pool"
-      className="relative isolate h-[36rem] overflow-hidden rounded-2xl border border-white/60 bg-slate-200 shadow-xl shadow-brand-500/10"
+      className="relative isolate flex min-h-[36rem] overflow-hidden rounded-2xl border border-white/60 bg-slate-200 shadow-xl shadow-brand-500/10"
     >
       <div className="absolute inset-0 z-0 animate-fade-in">
         <LiveMap position={position} recenterSignal={recenterSignal} />
@@ -21,7 +21,7 @@ export function HomeHero() {
       <div aria-hidden className="pointer-events-none absolute inset-0 z-[500] bg-linear-to-r from-slate-900/25 via-transparent to-transparent" />
 
       {/* Wrapper ignores the pointer so the map stays draggable around the card. */}
-      <div className="pointer-events-none relative z-[1000] flex h-full items-start p-4 sm:items-center sm:p-8">
+      <div className="pointer-events-none relative z-[1000] flex w-full items-start p-4 sm:items-center sm:p-8">
         <div className="pointer-events-auto w-full max-w-md animate-fade-up space-y-5 rounded-2xl bg-white/90 p-5 shadow-2xl ring-1 ring-white/70 backdrop-blur-md sm:p-6">
           <div className="animate-fade-up" style={{ animationDelay: '100ms' }}>
             <h1 className="text-3xl font-extrabold tracking-tight sm:text-4xl">
