@@ -5,6 +5,8 @@ import { categoryInfo, describeLuggage, formatFare, type Pool } from './poolsApi
 
 const STATUS_LABEL: Record<string, string> = {
   OPEN: 'Open',
+  SEARCHING: 'Searching',
+  SEARCH_TIMED_OUT: 'Search ended',
   PARTIALLY_FILLED: 'Partly filled',
   FULL: 'Full',
   MATCHED: 'Matched',

@@ -13,7 +13,9 @@ import { RoutePreviewMap } from '../maps/RoutePreviewMap'
 import { fetchRoute, formatDistance, formatDuration, type Place } from '../maps/mapsApi'
 import { TIME_PATTERN, describeArrival, nextOccurrence } from './arrivalTime'
 import { LuggageSelector } from './LuggageSelector'
+import { OwnerMatchList } from './MatchList'
 import { ModeChoice } from './ModeChoice'
+import { SearchPanel } from './SearchPanel'
 import {
   EMPTY_LUGGAGE,
   MAX_PEOPLE,
@@ -22,6 +24,7 @@ import {
   categoryInfo,
   poolIn,
   type Luggage,
+  type OwnerMatch,
   type PlaceInput,
   type PoolInPayload,
   type PoolInResult,
@@ -53,9 +56,21 @@ const schema = z
     fare: numeric,
     negotiable: z.boolean().optional(),
     people: numeric,
+    // Matching limits. Blank is allowed for all of them: the server then uses its default (or applies no limit).
+    maxDriverDetourKm: numeric,
+    luggageSpaceUnits: numeric,
+    maxPickupTravelKm: numeric,
+    maxDropoffTravelKm: numeric,
+    maxBudget: numeric,
   })
   .superRefine((v, ctx) => {
     const issue = (path: keyof PoolForm, message: string) => ctx.addIssue({ code: 'custom', path: [path], message })
+    // A limit that was filled in must be sensible; one left blank is simply not sent.
+    const km = (field: 'maxDriverDetourKm' | 'maxPickupTravelKm' | 'maxDropoffTravelKm', min: number, max: number) => {
+      const n = v[field]
+      if (!isNum(n)) return
+      if (n < min || n > max) issue(field, `Enter between ${min} and ${max} km`)
+    }
 
     if (v.mode === 'OWN_VEHICLE') {
       const category = categoryInfo(v.vehicleCategory ?? '')
@@ -74,6 +89,11 @@ const schema = z
       else if (v.fare < 0) issue('fare', 'Fare cannot be negative')
       else if (v.fare > MAX_FARE) issue('fare', `Fare cannot exceed ₹${MAX_FARE.toLocaleString('en-IN')}`)
       else if (Math.abs(v.fare * 100 - Math.round(v.fare * 100)) > 1e-6) issue('fare', 'Fare can have at most 2 decimal places')
+
+      km('maxDriverDetourKm', 0, 50)
+      if (isNum(v.luggageSpaceUnits) && (!Number.isInteger(v.luggageSpaceUnits) || v.luggageSpaceUnits < 0 || v.luggageSpaceUnits > 100)) {
+        issue('luggageSpaceUnits', 'Enter a whole number of bags, from 0 to 100')
+      }
     }
 
     if (v.mode === 'POOL_CAB') {
@@ -81,6 +101,14 @@ const schema = z
       else if (!Number.isInteger(v.people)) issue('people', 'Whole numbers only')
       else if (v.people < 1) issue('people', 'At least 1 person')
       else if (v.people > MAX_PEOPLE) issue('people', `At most ${MAX_PEOPLE} people`)
+
+      km('maxPickupTravelKm', 0.1, 20)
+      km('maxDropoffTravelKm', 0.1, 20)
+      if (isNum(v.maxBudget)) {
+        if (v.maxBudget < 1) issue('maxBudget', 'Enter at least ₹1')
+        else if (v.maxBudget > MAX_FARE) issue('maxBudget', `Cannot exceed ₹${MAX_FARE.toLocaleString('en-IN')}`)
+        else if (Math.abs(v.maxBudget * 100 - Math.round(v.maxBudget * 100)) > 1e-6) issue('maxBudget', 'At most 2 decimal places')
+      }
     }
   })
 type PoolForm = z.input<typeof schema>
@@ -97,6 +125,11 @@ const SERVER_FIELD: Record<string, keyof PoolForm> = {
   seats: 'seats',
   askingPrice: 'fare',
   people: 'people',
+  maxDriverDetourKm: 'maxDriverDetourKm',
+  luggageSpaceUnits: 'luggageSpaceUnits',
+  maxPickupTravelKm: 'maxPickupTravelKm',
+  maxDropoffTravelKm: 'maxDropoffTravelKm',
+  maxBudget: 'maxBudget',
 }
 
 const inputClass =
@@ -134,23 +167,47 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
   )
 }
 
+// Shown when pools already fit the trip: nothing new is created, the best matches are listed instead.
+function MatchesFoundPanel({ matches, degraded, onEdit }: { matches: OwnerMatch[]; degraded: boolean; onEdit: () => void }) {
+  const n = matches.length
+  return (
+    <section aria-label="Matching pools" className="animate-pop-in space-y-5">
+      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6">
+        <CircleCheck aria-hidden className="h-9 w-9 text-emerald-600" />
+        <h1 className="mt-2 text-2xl font-extrabold tracking-tight text-emerald-900">
+          We found {n} pool{n === 1 ? '' : 's'} that fit{n === 1 ? 's' : ''} your trip
+        </h1>
+        <p className="mt-1 text-sm text-emerald-900/80">
+          Best match first. Each one has passed every check: seats, luggage, time, and the distances you and the driver
+          agreed to travel. We didn't create a new request, since a pool already fits.
+        </p>
+      </div>
+      {degraded && (
+        <p role="status" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+          We couldn't check every pool just now, so there may be others.
+        </p>
+      )}
+      <OwnerMatchList matches={matches} />
+      <button type="button" onClick={onEdit} className="btn-secondary !py-2 text-sm">
+        Change my search
+      </button>
+    </section>
+  )
+}
+
 function OutcomePanel({ result, onAnother }: { result: PoolInResult; onAnother: () => void }) {
   let title: string
   let body: string
   if (result.outcome === 'POOL_CREATED') {
     title = 'Your pool is created'
     body =
-      "It's saved in the Car owner section. Riders can't search for or join pools yet, so nobody will see it until matching launches."
-  } else if (result.outcome === 'REQUEST_CREATED') {
+      result.pool.matchable === false
+        ? "It's saved in the Car owner section, but we couldn't save your route just now, so passengers can't be matched with it yet. Joining a pool isn't available yet either."
+        : "It's saved in the Car owner section. Passengers searching along your route can now be matched with it. Joining a pool isn't available yet."
+  } else {
     title = 'Your pool request is saved'
     body =
-      result.matching.status === 'NOT_AVAILABLE'
-        ? "Pool matching isn't available yet, so we haven't matched you with anyone. Your request is saved in the Cab section and will be matched once matching launches."
-        : "We didn't find a matching pool, so we saved your request in the Cab section."
-  } else {
-    const n = result.matching.matches.length
-    title = `We found ${n} matching pool${n === 1 ? '' : 's'}`
-    body = "Viewing and joining matches is coming soon. We haven't created a new request, since a match exists."
+      "We couldn't search for a match because a place wasn't picked from the suggestions. Your request is saved in the Cab section. Pick both places from the list next time to search for a pool straight away."
   }
 
   return (
@@ -204,7 +261,17 @@ export function PoolInPage() {
     formState: { errors },
   } = useForm<PoolForm>({
     resolver: zodResolver(schema),
-    defaultValues: { startText: '', endText: '', seats: 1, people: 1, negotiable: false },
+    // Starting limits the user can change: how far a driver will go out of their way, and how far a passenger will travel.
+    defaultValues: {
+      startText: '',
+      endText: '',
+      seats: 1,
+      people: 1,
+      negotiable: false,
+      maxDriverDetourKm: 5,
+      maxPickupTravelKm: 2,
+      maxDropoffTravelKm: 2,
+    },
   })
 
   useEffect(() => {
@@ -300,8 +367,18 @@ export function PoolInPage() {
             seats: v.seats as number,
             askingPrice: v.fare as number,
             negotiable: v.negotiable ?? false,
+            // A blank limit is left out, so the server applies its default.
+            ...(isNum(v.maxDriverDetourKm) ? { maxDriverDetourKm: v.maxDriverDetourKm } : {}),
+            ...(isNum(v.luggageSpaceUnits) ? { luggageSpaceUnits: v.luggageSpaceUnits } : {}),
           }
-        : { mode: 'POOL_CAB', ...trip, people: v.people as number }
+        : {
+            mode: 'POOL_CAB',
+            ...trip,
+            people: v.people as number,
+            ...(isNum(v.maxPickupTravelKm) ? { maxPickupTravelKm: v.maxPickupTravelKm } : {}),
+            ...(isNum(v.maxDropoffTravelKm) ? { maxDropoffTravelKm: v.maxDropoffTravelKm } : {}),
+            ...(isNum(v.maxBudget) ? { maxBudget: v.maxBudget } : {}),
+          }
     mutation.mutate(payload)
   }
 
@@ -330,278 +407,408 @@ export function PoolInPage() {
     )
   }
 
+  // Back to the form with every answer still in place (the form stays mounted, just hidden, while a result is shown).
   const startAgain = () => {
     setResult(null)
     setFormError(null)
   }
 
-  if (result) {
-    return (
-      <div className="mx-auto max-w-2xl">
-        <OutcomePanel result={result} onAnother={startAgain} />
-      </div>
-    )
-  }
-
   const submitLabel =
     mode === 'OWN_VEHICLE' ? 'Create my pool' : mode === 'POOL_CAB' ? 'Find a pool' : 'Pool In'
 
+  let resultView: ReactNode = null
+  if (result?.outcome === 'SEARCH_STARTED') {
+    resultView = (
+      <SearchPanel
+        key={result.pool.id}
+        searchId={result.pool.id}
+        windowSeconds={result.windowSeconds}
+        startedDegraded={result.matching.status === 'DEGRADED'}
+        onEdit={startAgain}
+      />
+    )
+  } else if (result?.outcome === 'MATCHES_FOUND') {
+    resultView = (
+      <MatchesFoundPanel matches={result.matching.matches} degraded={result.matching.status === 'DEGRADED'} onEdit={startAgain} />
+    )
+  } else if (result) {
+    resultView = <OutcomePanel result={result} onAnother={startAgain} />
+  }
+
   return (
-    <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-2">
-      <div className="rounded-2xl border border-slate-200 bg-white/95 p-6 shadow-xl shadow-brand-500/10 sm:p-8">
-        <h1 className="text-3xl font-extrabold tracking-tight">Pool In</h1>
-        <p className="mt-1 text-sm text-slate-600">Tell us about your trip, then choose how you want to pool.</p>
+    <>
+      {resultView && <div className="mx-auto max-w-3xl">{resultView}</div>}
+      <div hidden={result !== null}>
+        <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-2">
+          <div className="rounded-2xl border border-slate-200 bg-white/95 p-6 shadow-xl shadow-brand-500/10 sm:p-8">
+            <h1 className="text-3xl font-extrabold tracking-tight">Pool In</h1>
+            <p className="mt-1 text-sm text-slate-600">Tell us about your trip, then choose how you want to pool.</p>
 
-        <form noValidate onSubmit={handleSubmit(onSubmit)} className="mt-6 space-y-8" aria-label="Pool In">
-          <Section title="Your trip">
-            <Controller
-              name="startText"
-              control={control}
-              render={({ field }) => (
-                <PlaceAutocomplete
-                  id="startText"
-                  label="Starting location"
-                  placeholder="Search for a place in India"
-                  text={field.value ?? ''}
-                  onTextChange={(t) => {
-                    field.onChange(t)
-                    if (!startPlace || t !== startPlace.label) setStartChoice(null)
-                  }}
-                  selected={startPlace}
-                  onSelect={setStartChoice}
-                  bias={currentPlace}
-                  currentLocation={currentPlace}
-                  error={errors.startText?.message}
-                  onServiceStatus={setPlacesDown}
-                />
-              )}
-            />
-            <Controller
-              name="endText"
-              control={control}
-              render={({ field }) => (
-                <PlaceAutocomplete
-                  id="endText"
-                  label="Destination"
-                  placeholder="Search for a place in India"
-                  text={field.value ?? ''}
-                  onTextChange={(t) => {
-                    field.onChange(t)
-                    if (endPlace && t !== endPlace.label) setEndPlace(null)
-                  }}
-                  selected={endPlace}
-                  onSelect={setEndPlace}
-                  bias={currentPlace}
-                  error={errors.endText?.message}
-                  onServiceStatus={setPlacesDown}
-                />
-              )}
-            />
-            <Field id="arriveBy" label="Reach the destination by" error={errors.arriveBy?.message} hint={arrivalHint}>
-              <div className="relative">
-                <Clock aria-hidden className="pointer-events-none absolute left-3 top-1/2 mt-0.5 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input
-                  id="arriveBy"
-                  type="time"
-                  step={60}
-                  className={`${inputClass} pl-9`}
-                  aria-invalid={!!errors.arriveBy}
-                  aria-describedby={describe('arriveBy', true)}
-                  {...register('arriveBy')}
-                />
-              </div>
-            </Field>
-          </Section>
-
-          <Section title="Luggage" hint="What you'll be travelling with.">
-            <LuggageSelector value={luggage} onChange={setLuggage} />
-          </Section>
-
-          <Section title="How do you want to pool?">
-            <ModeChoice
-              value={mode}
-              error={errors.mode?.message}
-              onChange={(m) => {
-                setValue('mode', m, { shouldValidate: false })
-                clearErrors(['mode', 'vehicleCategory', 'vehicleMake', 'vehicleModel', 'seats', 'fare', 'people'])
-              }}
-            />
-          </Section>
-
-          {/* Keyed by mode so the panel animates in each time the choice changes. */}
-          {mode === 'OWN_VEHICLE' && (
-            <div key="own" className="animate-fade-up space-y-8">
-              <Section title="Your vehicle">
-                <Field id="vehicleCategory" label="Vehicle type" error={errors.vehicleCategory?.message}>
-                  <select
-                    id="vehicleCategory"
-                    className={inputClass}
-                    aria-invalid={!!errors.vehicleCategory}
-                    aria-describedby={describe('vehicleCategory')}
-                    defaultValue=""
-                    {...register('vehicleCategory')}
-                  >
-                    <option value="" disabled>
-                      Choose…
-                    </option>
-                    {VEHICLE_CATEGORIES.map((c) => (
-                      <option key={c.value} value={c.value}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field id="vehicleMake" label="Make" error={errors.vehicleMake?.message}>
-                    <input
-                      id="vehicleMake"
-                      className={inputClass}
-                      placeholder="e.g. Honda"
-                      aria-invalid={!!errors.vehicleMake}
-                      aria-describedby={describe('vehicleMake')}
-                      {...register('vehicleMake')}
+            <form noValidate onSubmit={handleSubmit(onSubmit)} className="mt-6 space-y-8" aria-label="Pool In">
+              <Section title="Your trip">
+                <Controller
+                  name="startText"
+                  control={control}
+                  render={({ field }) => (
+                    <PlaceAutocomplete
+                      id="startText"
+                      label="Starting location"
+                      placeholder="Search for a place in India"
+                      text={field.value ?? ''}
+                      onTextChange={(t) => {
+                        field.onChange(t)
+                        if (!startPlace || t !== startPlace.label) setStartChoice(null)
+                      }}
+                      selected={startPlace}
+                      onSelect={setStartChoice}
+                      bias={currentPlace}
+                      currentLocation={currentPlace}
+                      error={errors.startText?.message}
+                      onServiceStatus={setPlacesDown}
                     />
-                  </Field>
-                  <Field id="vehicleModel" label="Model" error={errors.vehicleModel?.message}>
-                    <input
-                      id="vehicleModel"
-                      className={inputClass}
-                      placeholder="e.g. City"
-                      aria-invalid={!!errors.vehicleModel}
-                      aria-describedby={describe('vehicleModel')}
-                      {...register('vehicleModel')}
-                    />
-                  </Field>
-                </div>
-              </Section>
-
-              <Section title="Seats and fare">
-                <Field
-                  id="seats"
-                  label="Seats you can offer"
-                  error={errors.seats?.message}
-                  hint={
-                    maxSeats
-                      ? `Up to ${maxSeats} passengers for this vehicle type, not counting you.`
-                      : 'Passengers you can take, not counting you.'
-                  }
-                >
-                  <input
-                    id="seats"
-                    type="number"
-                    min={1}
-                    max={maxSeats ?? 8}
-                    className={inputClass}
-                    aria-invalid={!!errors.seats}
-                    aria-describedby={describe('seats', true)}
-                    {...register('seats', { valueAsNumber: true })}
-                  />
-                </Field>
-                <Field
-                  id="fare"
-                  label="Fare per passenger (₹)"
-                  error={errors.fare?.message}
-                  hint="The amount you're asking each rider to contribute towards the trip."
-                >
-                  <input
-                    id="fare"
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    inputMode="decimal"
-                    className={inputClass}
-                    aria-invalid={!!errors.fare}
-                    aria-describedby={describe('fare', true)}
-                    {...register('fare', { valueAsNumber: true })}
-                  />
-                </Field>
-                <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm transition-colors hover:bg-slate-100">
-                  <input type="checkbox" className="mt-0.5 h-4 w-4 accent-brand-600" {...register('negotiable')} />
-                  <span>
-                    <span className="font-medium">Fare is negotiable</span>
-                    <span className="block text-xs text-slate-500">Riders can propose a different amount and you can accept, decline or counter.</span>
-                  </span>
-                </label>
-                <p className="text-xs text-slate-500">
-                  Pool-In is for sharing journey costs, not for running a taxi service. Make sure your trip and your vehicle
-                  comply with local transport rules.
-                </p>
-              </Section>
-            </div>
-          )}
-
-          {mode === 'POOL_CAB' && (
-            <div key="cab" className="animate-fade-up space-y-4">
-              <Section title="Who's travelling">
-                <div>
-                  <span id="people-label" className="block text-sm font-medium">
-                    People travelling together
-                  </span>
-                  <div className="mt-1 flex items-center gap-3">
-                    <button
-                      type="button"
-                      aria-label="Fewer people"
-                      onClick={() => setValue('people', Math.max(1, (isNum(people) ? people : 1) - 1))}
-                      className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-slate-300 bg-white transition hover:border-brand-500 hover:bg-brand-50 active:scale-90"
-                    >
-                      <Minus aria-hidden className="h-4 w-4" />
-                    </button>
-                    <span className="flex min-w-[5rem] items-center justify-center gap-2 text-lg font-semibold tabular-nums">
-                      <Users aria-hidden className="h-5 w-5 text-brand-600" />
-                      <output aria-labelledby="people-label">{isNum(people) ? people : 1}</output>
-                    </span>
-                    <button
-                      type="button"
-                      aria-label="More people"
-                      onClick={() => setValue('people', Math.min(MAX_PEOPLE, (isNum(people) ? people : 1) + 1))}
-                      className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-slate-300 bg-white transition hover:border-brand-500 hover:bg-brand-50 active:scale-90"
-                    >
-                      <Plus aria-hidden className="h-4 w-4" />
-                    </button>
-                  </div>
-                  {errors.people && (
-                    <p role="alert" className="mt-1 text-xs text-red-600">
-                      {errors.people.message}
-                    </p>
                   )}
-                </div>
-                <p className="rounded-lg bg-brand-50 p-3 text-xs text-slate-600">
-                  We'll look for a pool that already suits your trip. If there isn't one, we'll save your request so others can
-                  match with it.
-                </p>
+                />
+                <Controller
+                  name="endText"
+                  control={control}
+                  render={({ field }) => (
+                    <PlaceAutocomplete
+                      id="endText"
+                      label="Destination"
+                      placeholder="Search for a place in India"
+                      text={field.value ?? ''}
+                      onTextChange={(t) => {
+                        field.onChange(t)
+                        if (endPlace && t !== endPlace.label) setEndPlace(null)
+                      }}
+                      selected={endPlace}
+                      onSelect={setEndPlace}
+                      bias={currentPlace}
+                      error={errors.endText?.message}
+                      onServiceStatus={setPlacesDown}
+                    />
+                  )}
+                />
+                <Field id="arriveBy" label="Reach the destination by" error={errors.arriveBy?.message} hint={arrivalHint}>
+                  <div className="relative">
+                    <Clock aria-hidden className="pointer-events-none absolute left-3 top-1/2 mt-0.5 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    <input
+                      id="arriveBy"
+                      type="time"
+                      step={60}
+                      className={`${inputClass} pl-9`}
+                      aria-invalid={!!errors.arriveBy}
+                      aria-describedby={describe('arriveBy', true)}
+                      {...register('arriveBy')}
+                    />
+                  </div>
+                </Field>
               </Section>
+
+              <Section title="Luggage" hint="What you'll be travelling with.">
+                <LuggageSelector value={luggage} onChange={setLuggage} />
+              </Section>
+
+              <Section title="How do you want to pool?">
+                <ModeChoice
+                  value={mode}
+                  error={errors.mode?.message}
+                  onChange={(m) => {
+                    setValue('mode', m, { shouldValidate: false })
+                    clearErrors([
+                      'mode',
+                      'vehicleCategory',
+                      'vehicleMake',
+                      'vehicleModel',
+                      'seats',
+                      'fare',
+                      'people',
+                      'maxDriverDetourKm',
+                      'luggageSpaceUnits',
+                      'maxPickupTravelKm',
+                      'maxDropoffTravelKm',
+                      'maxBudget',
+                    ])
+                  }}
+                />
+              </Section>
+
+              {/* Keyed by mode so the panel animates in each time the choice changes. */}
+              {mode === 'OWN_VEHICLE' && (
+                <div key="own" className="animate-fade-up space-y-8">
+                  <Section title="Your vehicle">
+                    <Field id="vehicleCategory" label="Vehicle type" error={errors.vehicleCategory?.message}>
+                      <select
+                        id="vehicleCategory"
+                        className={inputClass}
+                        aria-invalid={!!errors.vehicleCategory}
+                        aria-describedby={describe('vehicleCategory')}
+                        defaultValue=""
+                        {...register('vehicleCategory')}
+                      >
+                        <option value="" disabled>
+                          Choose…
+                        </option>
+                        {VEHICLE_CATEGORIES.map((c) => (
+                          <option key={c.value} value={c.value}>
+                            {c.label}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <Field id="vehicleMake" label="Make" error={errors.vehicleMake?.message}>
+                        <input
+                          id="vehicleMake"
+                          className={inputClass}
+                          placeholder="e.g. Honda"
+                          aria-invalid={!!errors.vehicleMake}
+                          aria-describedby={describe('vehicleMake')}
+                          {...register('vehicleMake')}
+                        />
+                      </Field>
+                      <Field id="vehicleModel" label="Model" error={errors.vehicleModel?.message}>
+                        <input
+                          id="vehicleModel"
+                          className={inputClass}
+                          placeholder="e.g. City"
+                          aria-invalid={!!errors.vehicleModel}
+                          aria-describedby={describe('vehicleModel')}
+                          {...register('vehicleModel')}
+                        />
+                      </Field>
+                    </div>
+                  </Section>
+
+                  <Section title="Seats and fare">
+                    <Field
+                      id="seats"
+                      label="Seats you can offer"
+                      error={errors.seats?.message}
+                      hint={
+                        maxSeats
+                          ? `Up to ${maxSeats} passengers for this vehicle type, not counting you.`
+                          : 'Passengers you can take, not counting you.'
+                      }
+                    >
+                      <input
+                        id="seats"
+                        type="number"
+                        min={1}
+                        max={maxSeats ?? 8}
+                        className={inputClass}
+                        aria-invalid={!!errors.seats}
+                        aria-describedby={describe('seats', true)}
+                        {...register('seats', { valueAsNumber: true })}
+                      />
+                    </Field>
+                    <Field
+                      id="fare"
+                      label="Fare per passenger (₹)"
+                      error={errors.fare?.message}
+                      hint="The amount you're asking each rider to contribute towards the trip."
+                    >
+                      <input
+                        id="fare"
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        inputMode="decimal"
+                        className={inputClass}
+                        aria-invalid={!!errors.fare}
+                        aria-describedby={describe('fare', true)}
+                        {...register('fare', { valueAsNumber: true })}
+                      />
+                    </Field>
+                    <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm transition-colors hover:bg-slate-100">
+                      <input type="checkbox" className="mt-0.5 h-4 w-4 accent-brand-600" {...register('negotiable')} />
+                      <span>
+                        <span className="font-medium">Fare is negotiable</span>
+                        <span className="block text-xs text-slate-500">Riders can propose a different amount and you can accept, decline or counter.</span>
+                      </span>
+                    </label>
+                    <p className="text-xs text-slate-500">
+                      Pool-In is for sharing journey costs, not for running a taxi service. Make sure your trip and your vehicle
+                      comply with local transport rules.
+                    </p>
+                  </Section>
+
+                  <Section title="Matching" hint="Helps us pair you with riders who suit your trip.">
+                    <Field
+                      id="maxDriverDetourKm"
+                      label="Most extra distance you'll drive (km)"
+                      error={errors.maxDriverDetourKm?.message}
+                      hint="How far out of your way you'll go to pick someone up and drop them off."
+                    >
+                      <input
+                        id="maxDriverDetourKm"
+                        type="number"
+                        min={0}
+                        max={50}
+                        step="0.5"
+                        inputMode="decimal"
+                        className={inputClass}
+                        aria-invalid={!!errors.maxDriverDetourKm}
+                        aria-describedby={describe('maxDriverDetourKm', true)}
+                        {...register('maxDriverDetourKm', { valueAsNumber: true })}
+                      />
+                    </Field>
+                    <Field
+                      id="luggageSpaceUnits"
+                      label="Luggage space for riders (standard bags), optional"
+                      error={errors.luggageSpaceUnits?.message}
+                      hint="Leave blank to use a typical amount for your vehicle type."
+                    >
+                      <input
+                        id="luggageSpaceUnits"
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="1"
+                        inputMode="numeric"
+                        className={inputClass}
+                        aria-invalid={!!errors.luggageSpaceUnits}
+                        aria-describedby={describe('luggageSpaceUnits', true)}
+                        {...register('luggageSpaceUnits', { valueAsNumber: true })}
+                      />
+                    </Field>
+                  </Section>
+                </div>
+              )}
+
+              {mode === 'POOL_CAB' && (
+                <div key="cab" className="animate-fade-up space-y-4">
+                  <Section title="Who's travelling">
+                    <div>
+                      <span id="people-label" className="block text-sm font-medium">
+                        People travelling together
+                      </span>
+                      <div className="mt-1 flex items-center gap-3">
+                        <button
+                          type="button"
+                          aria-label="Fewer people"
+                          onClick={() => setValue('people', Math.max(1, (isNum(people) ? people : 1) - 1))}
+                          className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-slate-300 bg-white transition hover:border-brand-500 hover:bg-brand-50 active:scale-90"
+                        >
+                          <Minus aria-hidden className="h-4 w-4" />
+                        </button>
+                        <span className="flex min-w-[5rem] items-center justify-center gap-2 text-lg font-semibold tabular-nums">
+                          <Users aria-hidden className="h-5 w-5 text-brand-600" />
+                          <output aria-labelledby="people-label">{isNum(people) ? people : 1}</output>
+                        </span>
+                        <button
+                          type="button"
+                          aria-label="More people"
+                          onClick={() => setValue('people', Math.min(MAX_PEOPLE, (isNum(people) ? people : 1) + 1))}
+                          className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-slate-300 bg-white transition hover:border-brand-500 hover:bg-brand-50 active:scale-90"
+                        >
+                          <Plus aria-hidden className="h-4 w-4" />
+                        </button>
+                      </div>
+                      {errors.people && (
+                        <p role="alert" className="mt-1 text-xs text-red-600">
+                          {errors.people.message}
+                        </p>
+                      )}
+                    </div>
+                    <p className="rounded-lg bg-brand-50 p-3 text-xs text-slate-600">
+                      We'll look for a pool that already suits your trip. If none fits yet, we'll keep searching for 5 minutes and
+                      show you any new pool that does.
+                    </p>
+                  </Section>
+
+                  <Section title="Your limits" hint="How far you're willing to travel. Only pools within these limits are shown.">
+                    <Field
+                      id="maxPickupTravelKm"
+                      label="Most you'll travel to be picked up (km)"
+                      error={errors.maxPickupTravelKm?.message}
+                      hint="By road, from where you are to the pickup point."
+                    >
+                      <input
+                        id="maxPickupTravelKm"
+                        type="number"
+                        min={0.1}
+                        max={20}
+                        step="0.1"
+                        inputMode="decimal"
+                        className={inputClass}
+                        aria-invalid={!!errors.maxPickupTravelKm}
+                        aria-describedby={describe('maxPickupTravelKm', true)}
+                        {...register('maxPickupTravelKm', { valueAsNumber: true })}
+                      />
+                    </Field>
+                    <Field
+                      id="maxDropoffTravelKm"
+                      label="Most from drop-off to your destination (km), optional"
+                      error={errors.maxDropoffTravelKm?.message}
+                      hint="Leave blank if you don't mind where along the route you're dropped."
+                    >
+                      <input
+                        id="maxDropoffTravelKm"
+                        type="number"
+                        min={0.1}
+                        max={20}
+                        step="0.1"
+                        inputMode="decimal"
+                        className={inputClass}
+                        aria-invalid={!!errors.maxDropoffTravelKm}
+                        aria-describedby={describe('maxDropoffTravelKm', true)}
+                        {...register('maxDropoffTravelKm', { valueAsNumber: true })}
+                      />
+                    </Field>
+                    <Field
+                      id="maxBudget"
+                      label="Most you'd pay per person (₹), optional"
+                      error={errors.maxBudget?.message}
+                      hint="A pool with a fixed fare above this is left out. Negotiable fares are kept."
+                    >
+                      <input
+                        id="maxBudget"
+                        type="number"
+                        min={1}
+                        step="0.01"
+                        inputMode="decimal"
+                        className={inputClass}
+                        aria-invalid={!!errors.maxBudget}
+                        aria-describedby={describe('maxBudget', true)}
+                        {...register('maxBudget', { valueAsNumber: true })}
+                      />
+                    </Field>
+                  </Section>
+                </div>
+              )}
+
+              {formError && (
+                <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
+                  {formError}
+                </p>
+              )}
+
+              <div className="flex items-center gap-4">
+                <button type="submit" disabled={mutation.isPending} className="btn-primary">
+                  {mutation.isPending ? 'Working…' : submitLabel}
+                </button>
+                <Link to="/" className="text-sm text-slate-600 underline">
+                  Cancel
+                </Link>
+              </div>
+            </form>
+          </div>
+
+          {/* Route preview: on phones it sits above the form, on desktop it stays in view beside it. */}
+          <aside aria-label="Route preview" className="order-first lg:sticky lg:top-24 lg:order-2 lg:self-start">
+            <div className="overflow-hidden rounded-2xl border border-white/60 bg-slate-200 shadow-xl shadow-brand-500/10">
+              <div className="isolate h-72 lg:h-[28rem]">
+                <RoutePreviewMap start={startPlace} end={endPlace} path={route.data?.path ?? null} />
+              </div>
+              <p role="status" className="flex items-start gap-2 bg-white px-4 py-3 text-sm text-slate-600">
+                <RouteIcon aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
+                <span>{routeNote}</span>
+              </p>
             </div>
-          )}
-
-          {formError && (
-            <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">
-              {formError}
-            </p>
-          )}
-
-          <div className="flex items-center gap-4">
-            <button type="submit" disabled={mutation.isPending} className="btn-primary">
-              {mutation.isPending ? 'Working…' : submitLabel}
-            </button>
-            <Link to="/" className="text-sm text-slate-600 underline">
-              Cancel
-            </Link>
-          </div>
-        </form>
-      </div>
-
-      {/* Route preview: on phones it sits above the form, on desktop it stays in view beside it. */}
-      <aside aria-label="Route preview" className="order-first lg:sticky lg:top-24 lg:order-2 lg:self-start">
-        <div className="overflow-hidden rounded-2xl border border-white/60 bg-slate-200 shadow-xl shadow-brand-500/10">
-          <div className="isolate h-72 lg:h-[28rem]">
-            <RoutePreviewMap start={startPlace} end={endPlace} path={route.data?.path ?? null} />
-          </div>
-          <p role="status" className="flex items-start gap-2 bg-white px-4 py-3 text-sm text-slate-600">
-            <RouteIcon aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
-            <span>{routeNote}</span>
-          </p>
+          </aside>
         </div>
-      </aside>
-    </div>
+      </div>
+    </>
   )
 }

@@ -13,6 +13,9 @@ vi.mock('../maps/RoutePreviewMap', () => ({
   ),
 }))
 
+// No real sockets in these tests: the page also polls, and the socket behaviour is tested on its own.
+vi.mock('../../lib/socket', () => ({ useServerEvent: vi.fn() }))
+
 const ok = (data: unknown, status = 200) => new Response(JSON.stringify({ success: true, data }), { status })
 const fail = (status: number, code: string, message: string, details?: unknown) =>
   new Response(JSON.stringify({ success: false, error: { code, message, details } }), { status })
@@ -22,15 +25,45 @@ const indiranagar = { id: 'N1', title: 'Indiranagar', subtitle: 'Bengaluru, Karn
 const route = { distanceMeters: 35214.6, durationSeconds: 2140.4, path: [[12.97, 77.64], [13.19, 77.7]] }
 
 const emptyLuggage = { large: 0, medium: 0, cabin: 0, backpack: 0, oversized: 0 }
-const matchingNone = { status: 'NOT_AVAILABLE', sections: ['CAR_OWNER', 'CAB'], matches: [] }
-const ownerCreated = { outcome: 'POOL_CREATED', section: 'CAR_OWNER', pool: { id: 'p1' } }
-const cabCreated = { outcome: 'REQUEST_CREATED', section: 'CAB', pool: { id: 'c1' }, matching: matchingNone }
+const ownerCreated = { outcome: 'POOL_CREATED', section: 'CAR_OWNER', pool: { id: 'p1', matchable: true } }
+// A cab request saved without searching (place search was down, so there were no coordinates).
+const cabCreated = { outcome: 'REQUEST_CREATED', section: 'CAB', pool: { id: 'c1' }, matching: { status: 'NEEDS_COORDINATES', matches: [] } }
+// The five-minute search has started: no pool fits yet.
+const searchStarted = { outcome: 'SEARCH_STARTED', section: 'CAB', pool: { id: 'c1' }, windowSeconds: 300, matching: { status: 'OK', matches: [] } }
+const runningSearch = () => ({
+  id: 'c1',
+  status: 'SEARCHING',
+  windowSeconds: 300,
+  expiresAt: new Date(Date.now() + 290_000).toISOString(),
+  remainingSeconds: 290,
+  matches: [],
+  matching: { status: 'OK' },
+  canCreatePoolingRequest: false,
+})
+const clientMatch = (poolId: string, score: number) => ({
+  section: 'CAR_OWNER',
+  poolId,
+  score,
+  breakdown: [],
+  reasons: ['Pickup is 1 km from you by road, within your 2 km limit.'],
+  route: { from: 'Indiranagar', to: 'Airport' },
+  vehicle: { category: 'SEDAN', make: 'Honda', model: 'City' },
+  seatsAvailable: 3,
+  fare: { amount: 250, negotiable: false },
+  pickup: { lat: 12.99, lng: 77.65, roadKmFromRequestedPickup: 1, eta: '2030-06-01T08:00:00.000Z' },
+  dropoff: { lat: 13.18, lng: 77.7, roadKmToDestination: 0.5, eta: '2030-06-01T08:40:00.000Z' },
+  driverDetourKm: 0.2,
+  rideKm: 20,
+  driverDepartsAt: '2030-06-01T07:50:00.000Z',
+})
 
-type Handlers = Partial<Record<'places' | 'route' | 'pools', (url: URL) => Response>>
+type Handlers = Partial<Record<'places' | 'route' | 'pools' | 'search' | 'cancel', (url: URL) => Response>>
 
 function stubApi(handlers: Handlers = {}) {
-  const fetchMock = vi.fn(async (input: string) => {
+  const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
     const url = new URL(input, 'http://localhost')
+    if (/^\/api\/pools\/[^/]+\/search$/.test(url.pathname)) return (handlers.search ?? (() => ok({ search: runningSearch() })))(url)
+    if (/^\/api\/pools\/[^/]+\/cancel-search$/.test(url.pathname) && init?.method === 'POST') return (handlers.cancel ?? (() => ok({})))(url)
     switch (url.pathname) {
       case '/api/maps/places':
         return (handlers.places ?? (() => ok({ places: [airport, indiranagar] })))(url)
@@ -52,6 +85,7 @@ function stubApi(handlers: Handlers = {}) {
       const call = calls().find(([u]) => u === '/api/pools')
       return call ? JSON.parse(call[1]!.body as string) : undefined
     },
+    cancelled: () => calls().some(([u, init]) => /cancel-search$/.test(u) && init?.method === 'POST'),
     submitted: () => calls().some(([u]) => u === '/api/pools'),
     routeCalls: () => calls().filter(([u]) => u.startsWith('/api/maps/route')).map(([u]) => new URL(u, 'http://localhost')),
   }
@@ -287,7 +321,8 @@ describe('PoolInPage: "I own the vehicle" -> car-owner section', () => {
 
     expect(await screen.findByRole('heading', { name: /your pool is created/i })).toBeInTheDocument()
     expect(screen.getByText(/car owner section/i)).toBeInTheDocument()
-    expect(screen.getByText(/can't search for or join pools yet/i)).toBeInTheDocument()
+    expect(screen.getByText(/passengers searching along your route can now be matched with it/i)).toBeInTheDocument()
+    expect(screen.getByText(/joining a pool isn't available yet/i)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /view my pools/i })).toHaveAttribute('href', '/pools')
 
     expect(api.posted()).toEqual({
@@ -300,7 +335,23 @@ describe('PoolInPage: "I own the vehicle" -> car-owner section', () => {
       seats: 3,
       askingPrice: 250,
       negotiable: true,
+      maxDriverDetourKm: 5, // the starting value of the "most extra distance" field
     })
+  })
+
+  it('says so when a published pool could not be given a route yet (so it cannot be matched)', async () => {
+    stubApi({ pools: () => ok({ ...ownerCreated, pool: { id: 'p1', matchable: false } }, 201) })
+    stubGeolocation()
+    const u = userEvent.setup()
+    renderPage()
+    await ready()
+
+    await fillTrip(u)
+    await ownMode(u)
+    await fillOwner(u)
+    await submit(u)
+
+    expect(await screen.findByText(/passengers can't be matched with it yet/i)).toBeInTheDocument()
   })
 
   it('sends a fixed fare when the negotiable box is left unticked', async () => {
@@ -399,9 +450,9 @@ describe('PoolInPage: "I own the vehicle" -> car-owner section', () => {
   })
 })
 
-describe('PoolInPage: "Pool a cab" -> search, else cab section', () => {
-  it('sends the trip, luggage and number of people (and no vehicle or fare)', async () => {
-    const api = stubApi({ pools: () => ok(cabCreated, 201) })
+describe('PoolInPage: "Pool a cab" -> match now, else a five-minute search', () => {
+  it('sends the trip, luggage, number of people and limits (and no vehicle or fare)', async () => {
+    const api = stubApi({ pools: () => ok(searchStarted, 201) })
     stubGeolocation()
     const u = userEvent.setup()
     renderPage()
@@ -414,7 +465,7 @@ describe('PoolInPage: "Pool a cab" -> search, else cab section', () => {
     await u.click(screen.getByRole('button', { name: /more people/i }))
     await submit(u)
 
-    expect(await screen.findByRole('heading', { name: /your pool request is saved/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /searching for a pool/i })).toBeInTheDocument()
     expect(api.posted()).toEqual({
       mode: 'POOL_CAB',
       origin: { label: 'Current location', coordinates: { lat: 12.972, lng: 77.595 } },
@@ -422,7 +473,127 @@ describe('PoolInPage: "Pool a cab" -> search, else cab section', () => {
       arriveBy: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T.*Z$/),
       luggage: { ...emptyLuggage, cabin: 1 },
       people: 3,
+      maxPickupTravelKm: 2, // starting values of the limit fields
+      maxDropoffTravelKm: 2,
     })
+  })
+
+  it('starts with sensible limits the user can change, and an empty optional budget', async () => {
+    stubApi()
+    stubGeolocation()
+    const u = userEvent.setup()
+    renderPage()
+    await ready()
+    await cabMode(u)
+
+    expect(screen.getByLabelText(/most you'll travel to be picked up/i)).toHaveValue(2)
+    expect(screen.getByLabelText(/most from drop-off to your destination/i)).toHaveValue(2)
+    expect(screen.getByLabelText(/most you'd pay per person/i)).toHaveValue(null)
+    expect(screen.getByText(/fixed fare above this is left out\. negotiable fares are kept/i)).toBeInTheDocument()
+  })
+
+  it('sends the limits the user chose, and leaves blank ones out so the server can use its defaults', async () => {
+    const api = stubApi({ pools: () => ok(searchStarted, 201) })
+    stubGeolocation()
+    const u = userEvent.setup()
+    renderPage()
+    await ready()
+
+    await fillTrip(u)
+    await cabMode(u)
+    await u.clear(screen.getByLabelText(/most you'll travel to be picked up/i))
+    await u.type(screen.getByLabelText(/most you'll travel to be picked up/i), '1.5')
+    await u.clear(screen.getByLabelText(/most from drop-off to your destination/i)) // blank = no limit
+    await u.type(screen.getByLabelText(/most you'd pay per person/i), '400')
+    await submit(u)
+
+    await screen.findByRole('heading', { name: /searching for a pool/i })
+    const body = api.posted()
+    expect(body.maxPickupTravelKm).toBe(1.5)
+    expect(body.maxBudget).toBe(400)
+    expect(body).not.toHaveProperty('maxDropoffTravelKm')
+  })
+
+  it.each([
+    ['a pickup limit that is too small', 'maxPickupTravelKm', '0', /enter between 0\.1 and 20 km/i],
+    ['a pickup limit that is too large', 'maxPickupTravelKm', '50', /enter between 0\.1 and 20 km/i],
+    ['a drop-off limit that is too large', 'maxDropoffTravelKm', '99', /enter between 0\.1 and 20 km/i],
+    ['a budget of zero', 'maxBudget', '0', /enter at least ₹1/i],
+    ['a budget with three decimals', 'maxBudget', '10.123', /at most 2 decimal places/i],
+  ])('rejects %s', async (_label, field, value, message) => {
+    const api = stubApi()
+    stubGeolocation()
+    const u = userEvent.setup()
+    renderPage()
+    await ready()
+
+    await fillTrip(u)
+    await cabMode(u)
+    const input = document.getElementById(field) as HTMLInputElement
+    await u.clear(input)
+    await u.type(input, value)
+    await submit(u)
+
+    expect(await screen.findByText(message)).toBeInTheDocument()
+    expect(api.submitted()).toBe(false)
+  })
+
+  it('shows the driver\'s matching fields only for "I own the vehicle", with the detour starting at 5 km', async () => {
+    stubApi()
+    stubGeolocation()
+    const u = userEvent.setup()
+    renderPage()
+    await ready()
+
+    await ownMode(u)
+    expect(screen.getByLabelText(/most extra distance you'll drive/i)).toHaveValue(5)
+    expect(screen.getByLabelText(/luggage space for riders/i)).toHaveValue(null)
+    expect(screen.queryByLabelText(/most you'll travel to be picked up/i)).not.toBeInTheDocument()
+
+    await cabMode(u)
+    expect(screen.queryByLabelText(/most extra distance you'll drive/i)).not.toBeInTheDocument()
+  })
+
+  it('sends the owner\'s detour limit and luggage space, and leaves a cleared detour field out', async () => {
+    const api = stubApi()
+    stubGeolocation()
+    const u = userEvent.setup()
+    renderPage()
+    await ready()
+
+    await fillTrip(u)
+    await ownMode(u)
+    await fillOwner(u)
+    await u.clear(screen.getByLabelText(/most extra distance you'll drive/i))
+    await u.type(screen.getByLabelText(/most extra distance you'll drive/i), '2.5')
+    await u.type(screen.getByLabelText(/luggage space for riders/i), '6')
+    await submit(u)
+
+    await screen.findByRole('heading', { name: /your pool is created/i })
+    expect(api.posted()).toMatchObject({ maxDriverDetourKm: 2.5, luggageSpaceUnits: 6 })
+  })
+
+  it.each([
+    ['a negative detour', 'maxDriverDetourKm', '-1', /enter between 0 and 50 km/i],
+    ['a huge detour', 'maxDriverDetourKm', '200', /enter between 0 and 50 km/i],
+    ['fractional luggage space', 'luggageSpaceUnits', '2.5', /whole number of bags/i],
+  ])('rejects %s for an owner', async (_label, field, value, message) => {
+    const api = stubApi()
+    stubGeolocation()
+    const u = userEvent.setup()
+    renderPage()
+    await ready()
+
+    await fillTrip(u)
+    await ownMode(u)
+    await fillOwner(u)
+    const input = document.getElementById(field) as HTMLInputElement
+    await u.clear(input)
+    await u.type(input, value)
+    await submit(u)
+
+    expect(await screen.findByText(message)).toBeInTheDocument()
+    expect(api.submitted()).toBe(false)
   })
 
   it('does not ask for vehicle details to submit a cab request', async () => {
@@ -442,7 +613,7 @@ describe('PoolInPage: "Pool a cab" -> search, else cab section', () => {
     expect(api.posted().people).toBe(1)
   })
 
-  it('is honest that matching is not available yet', async () => {
+  it('explains why a request was saved without a search (a place was not picked from the list)', async () => {
     stubApi({ pools: () => ok(cabCreated, 201) })
     stubGeolocation()
     const u = userEvent.setup()
@@ -453,12 +624,11 @@ describe('PoolInPage: "Pool a cab" -> search, else cab section', () => {
     await cabMode(u)
     await submit(u)
 
-    expect(await screen.findByText(/pool matching isn't available yet/i)).toBeInTheDocument()
-    expect(screen.getByText(/saved in the cab section/i)).toBeInTheDocument()
+    expect(await screen.findByText(/couldn't search for a match because a place wasn't picked/i)).toBeInTheDocument()
   })
 
-  it('says no match was found when a search really ran', async () => {
-    stubApi({ pools: () => ok({ ...cabCreated, matching: { ...matchingNone, status: 'SEARCHED' } }, 201) })
+  it('with no pool yet, shows the five-minute search instead of saving a request straight away', async () => {
+    stubApi({ pools: () => ok(searchStarted, 201) })
     stubGeolocation()
     const u = userEvent.setup()
     renderPage()
@@ -468,15 +638,17 @@ describe('PoolInPage: "Pool a cab" -> search, else cab section', () => {
     await cabMode(u)
     await submit(u)
 
-    expect(await screen.findByText(/didn't find a matching pool/i)).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /searching for a pool/i })).toBeInTheDocument()
+    expect(screen.getByText(/no pool fits yet/i)).toBeInTheDocument()
+    expect(await screen.findByRole('timer')).toHaveTextContent(/^4:[5-9]\d$/) // about 4:50 left of 5:00
   })
 
-  it('shows the matches (and that nothing new was created) when a match exists', async () => {
+  it('shows the matches, best first, when a pool already fits (and says nothing new was created)', async () => {
     stubApi({
       pools: () =>
         ok({
           outcome: 'MATCHES_FOUND',
-          matching: { status: 'SEARCHED', sections: ['CAR_OWNER', 'CAB'], matches: [{ id: 'a', section: 'CAR_OWNER' }, { id: 'b', section: 'CAB' }] },
+          matching: { status: 'OK', sections: ['CAR_OWNER', 'CAB'], matches: [clientMatch('a', 91), clientMatch('b', 70)] },
         }),
     })
     stubGeolocation()
@@ -488,8 +660,66 @@ describe('PoolInPage: "Pool a cab" -> search, else cab section', () => {
     await cabMode(u)
     await submit(u)
 
-    expect(await screen.findByRole('heading', { name: /we found 2 matching pools/i })).toBeInTheDocument()
-    expect(screen.getByText(/haven't created a new request/i)).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /we found 2 pools that fit your trip/i })).toBeInTheDocument()
+    expect(screen.getByText(/we didn't create a new request/i)).toBeInTheDocument()
+    const list = screen.getByRole('list', { name: /matching pools/i })
+    const items = Array.from(list.children) // top-level cards only; each has its own "why" list inside
+    expect(items).toHaveLength(2)
+    expect(items[0]).toHaveTextContent('Best match')
+    expect(items[0]).toHaveTextContent('91')
+    expect(items[1]).toHaveTextContent('Match 2')
+  })
+
+  it('warns that the list may be incomplete when some pools could not be checked', async () => {
+    stubApi({
+      pools: () => ok({ outcome: 'MATCHES_FOUND', matching: { status: 'DEGRADED', matches: [clientMatch('a', 80)] } }),
+    })
+    stubGeolocation()
+    const u = userEvent.setup()
+    renderPage()
+    await ready()
+
+    await fillTrip(u)
+    await cabMode(u)
+    await submit(u)
+
+    expect(await screen.findByText(/couldn't check every pool just now/i)).toBeInTheDocument()
+  })
+
+  it('"Change my search" goes back to the form with every answer still filled in', async () => {
+    stubApi({ pools: () => ok({ outcome: 'MATCHES_FOUND', matching: { status: 'OK', matches: [clientMatch('a', 80)] } }) })
+    stubGeolocation()
+    const u = userEvent.setup()
+    renderPage()
+    await ready()
+
+    await fillTrip(u)
+    await cabMode(u)
+    await u.click(screen.getByRole('button', { name: /more cabin bags/i }))
+    await submit(u)
+    await u.click(await screen.findByRole('button', { name: /change my search/i }))
+
+    expect(destField()).toHaveValue(airport.label)
+    expect(arrival()).toHaveValue(TIME)
+    expect(screen.getByRole('radio', { name: /pool a cab/i })).toHaveAttribute('aria-checked', 'true')
+    expect(within(screen.getByRole('group', { name: /cabin bags/i })).getByRole('status')).toHaveTextContent('1')
+  })
+
+  it('"Edit my search" while searching stops the search and returns to the filled-in form', async () => {
+    const api = stubApi({ pools: () => ok(searchStarted, 201) })
+    stubGeolocation()
+    const u = userEvent.setup()
+    renderPage()
+    await ready()
+
+    await fillTrip(u)
+    await cabMode(u)
+    await submit(u)
+    await u.click(await screen.findByRole('button', { name: /stop searching and edit my search/i }))
+
+    await waitFor(() => expect(api.cancelled()).toBe(true))
+    expect(await screen.findByRole('radiogroup', { name: /how do you want to pool/i })).toBeInTheDocument()
+    expect(destField()).toHaveValue(airport.label)
   })
 
   it('keeps the number of people between 1 and the maximum', async () => {

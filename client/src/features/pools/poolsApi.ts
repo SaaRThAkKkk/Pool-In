@@ -48,11 +48,21 @@ export interface OwnVehiclePayload extends PoolInCommon {
   seats: number
   askingPrice: number
   negotiable: boolean
+  /** Most extra distance the owner will drive for a rider. Left out: the server uses a default. */
+  maxDriverDetourKm?: number
+  /** Room for riders' luggage, in standard bags. Left out: a default for the vehicle type is used. */
+  luggageSpaceUnits?: number
 }
 
 export interface PoolCabPayload extends PoolInCommon {
   mode: 'POOL_CAB'
   people: number
+  /** Most the passenger will travel to be picked up. Left out: the server uses a default. */
+  maxPickupTravelKm?: number
+  /** Optional: most they will travel from the drop-off point to their destination. */
+  maxDropoffTravelKm?: number
+  /** Optional: most they want to pay per person. */
+  maxBudget?: number
 }
 
 export type PoolInPayload = OwnVehiclePayload | PoolCabPayload
@@ -74,28 +84,96 @@ export interface CarOwnerPool extends PoolBase {
   vehicle: { category: VehicleCategory; make: string; model: string }
   seats: { offered: number; available: number; taken: number }
   pricing: { amount: number; currency: string; basis: string; negotiable: boolean }
+  maxDriverDetourKm?: number | null
+  luggageSpaceUnits?: number | null
+  /** False when no route is stored, so passengers cannot be matched with this pool yet. */
+  matchable?: boolean
 }
 
 export interface CabPool extends PoolBase {
   section: 'CAB'
   people: number
+  maxPickupTravelKm?: number | null
+  maxDropoffTravelKm?: number | null
+  maxBudget?: number | null
+  searchExpiresAt?: string | null
 }
 
 export type Pool = CarOwnerPool | CabPool
 
-export interface MatchingInfo {
-  /** NOT_AVAILABLE means matching is not built yet, so nothing was actually searched. */
-  status: 'NOT_AVAILABLE' | 'SEARCHED'
-  sections: ('CAR_OWNER' | 'CAB')[]
-  matches: { id: string; section: 'CAR_OWNER' | 'CAB' }[]
+export interface ScoreComponent {
+  key: 'route' | 'pickup' | 'time' | 'detour' | 'budget' | 'dropoff'
+  value: number
+  weight: number
+}
+
+// A car-owner pool that fits the passenger, found by the matching algorithm.
+export interface OwnerMatch {
+  section: 'CAR_OWNER'
+  poolId: string
+  /** 0 to 100. */
+  score: number
+  breakdown: ScoreComponent[]
+  reasons: string[]
+  route: { from: string; to: string }
+  vehicle: { category: string; make: string; model: string }
+  seatsAvailable: number
+  fare: { amount: number; negotiable: boolean }
+  pickup: { lat: number; lng: number; roadKmFromRequestedPickup: number; eta: string }
+  dropoff: { lat: number; lng: number; roadKmToDestination: number; eta: string }
+  driverDetourKm: number
+  rideKm: number
+  driverDepartsAt: string
+}
+
+// A proposed group of passengers sharing a cab. NOT a confirmed ride: no driver or vehicle yet.
+export interface PassengerMatch {
+  section: 'CAB'
+  requestId: string
+  score: number
+  breakdown: ScoreComponent[]
+  reasons: string[]
+  otherPeople: number
+  groupSize: number
+  pickup: { lat: number; lng: number; roadKmForYou: number }
+  dropoff: { lat: number; lng: number; roadKmForYou: number }
+  rideKm: number
+  rideMinutes: number
+  note: string
+}
+
+export interface OwnerSearchInfo {
+  /** DEGRADED: routing trouble meant some pools could not be checked, so the list may be incomplete. */
+  status: 'OK' | 'DEGRADED' | 'NEEDS_COORDINATES'
+  sections?: ('CAR_OWNER' | 'CAB')[]
+  matches: OwnerMatch[]
 }
 
 export type PoolInResult =
   | { outcome: 'POOL_CREATED'; section: 'CAR_OWNER'; pool: CarOwnerPool }
-  | { outcome: 'REQUEST_CREATED'; section: 'CAB'; pool: CabPool; matching: MatchingInfo }
-  | { outcome: 'MATCHES_FOUND'; matching: MatchingInfo }
+  | { outcome: 'SEARCH_STARTED'; section: 'CAB'; pool: CabPool; windowSeconds: number; matching: OwnerSearchInfo }
+  | { outcome: 'REQUEST_CREATED'; section: 'CAB'; pool: CabPool; matching: OwnerSearchInfo }
+  | { outcome: 'MATCHES_FOUND'; matching: OwnerSearchInfo }
+
+export interface SearchState {
+  id: string
+  status: 'SEARCHING' | 'SEARCH_TIMED_OUT' | 'OPEN' | 'CANCELLED' | string
+  windowSeconds: number
+  expiresAt: string | null
+  remainingSeconds: number
+  matches: OwnerMatch[]
+  matching: { status: 'OK' | 'DEGRADED' }
+  /** True once the five minutes are over and the user can ask to be matched with other passengers. */
+  canCreatePoolingRequest: boolean
+}
+
+export interface PassengerGroups {
+  status: 'OK' | 'DEGRADED' | 'NEEDS_COORDINATES'
+  matches: PassengerMatch[]
+}
 
 export const MY_POOLS_KEY = ['my-pools'] as const
+export const searchKey = (id: string) => ['search', id] as const
 
 export function poolIn(payload: PoolInPayload) {
   return api<PoolInResult>('/pools', { method: 'POST', body: JSON.stringify(payload) })
@@ -103,6 +181,23 @@ export function poolIn(payload: PoolInPayload) {
 
 export async function fetchMyPools() {
   return (await api<{ pools: Pool[] }>('/pools/mine')).pools
+}
+
+export async function fetchSearch(id: string) {
+  return (await api<{ search: SearchState }>(`/pools/${id}/search`)).search
+}
+
+export async function fetchPassengerMatches(id: string) {
+  return (await api<{ groups: PassengerGroups }>(`/pools/${id}/passenger-matches`)).groups
+}
+
+export function cancelSearch(id: string) {
+  return api<Record<string, never>>(`/pools/${id}/cancel-search`, { method: 'POST' })
+}
+
+// After the search window ends: ask to be matched with other passengers instead.
+export function createPoolingRequest(id: string) {
+  return api<{ pool: CabPool; groups: PassengerGroups }>(`/pools/${id}/pooling-request`, { method: 'POST' })
 }
 
 export function formatFare(amount: number, currency = 'INR') {
