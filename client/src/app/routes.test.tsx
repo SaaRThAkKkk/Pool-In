@@ -21,6 +21,7 @@ function mockBackend(session: { user: typeof person | null }) {
   const fetchMock = vi.fn(async (url: string) => {
     if (url === '/api/health') return ok({ status: 'ok', db: 'connected' })
     if (url === '/api/auth/me') return session.user ? ok({ user: session.user }) : unauthorized()
+    if (url === '/api/pools/mine') return ok({ pools: [] })
     if (url === '/api/auth/logout') {
       session.user = null
       return ok({})
@@ -79,8 +80,8 @@ describe('navigation and protected routes', () => {
     expect(await screen.findByRole('heading', { name: /welcome, asha verma/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /log out/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /my pools/i })).toHaveAttribute('href', '/pools')
-    expect(screen.getByText(/phone number is not verified/i)).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /verify now/i })).toHaveAttribute('href', '/verify-phone')
+    expect(screen.getByText(/phone not verified/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /verify my phone number/i })).toHaveAttribute('href', '/verify-phone')
     expect(screen.queryByRole('link', { name: /sign up/i })).not.toBeInTheDocument()
   })
 

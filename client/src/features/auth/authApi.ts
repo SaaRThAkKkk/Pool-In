@@ -10,6 +10,8 @@ export interface PublicUser {
   role: string
   phoneVerified: boolean
   verificationStatus: string
+  /** ISO timestamp of when the account was created. */
+  createdAt?: string
 }
 
 export interface SendOtpResult {

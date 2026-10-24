@@ -22,6 +22,7 @@ function mockBackend(loginResponse: () => Response) {
       return res
     }
     if (url === '/api/health') return ok({ status: 'ok', db: 'connected' })
+    if (url === '/api/pools/mine') return ok({ pools: [] })
     throw new Error(`unexpected request ${url}`)
   })
   vi.stubGlobal('fetch', fetchMock)
