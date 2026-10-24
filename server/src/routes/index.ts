@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { healthRouter } from './health.js';
 import { createAuthRouter, type AuthRouterOptions } from './auth.js';
 import { createPoolsRouter } from './pools.js';
-import type { PoolMatcher } from '../services/pools/matching.js';
+import type { PoolMatcher } from '../services/matching/matcher.js';
+import type { SearchNotifier } from '../services/realtime/notifier.js';
 import { createMapsRouter } from './maps.js';
 import type { MapsProvider } from '../services/maps/types.js';
 import { makeRequireAuth } from '../middleware/requireAuth.js';
@@ -12,6 +13,7 @@ export interface ApiRouterOptions extends AuthRouterOptions {
   requireVerifiedPhoneForBooking: boolean;
   maps: MapsProvider;
   matcher: PoolMatcher;
+  notifier: SearchNotifier;
 }
 
 export function createApiRouter(opts: ApiRouterOptions): Router {
@@ -27,6 +29,8 @@ export function createApiRouter(opts: ApiRouterOptions): Router {
       requireAuth,
       requireVerifiedPhone,
       matcher: opts.matcher,
+      maps: opts.maps,
+      notifier: opts.notifier,
       rateLimitEnabled: opts.rateLimitEnabled,
     }),
   );

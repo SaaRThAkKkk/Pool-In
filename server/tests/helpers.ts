@@ -4,14 +4,17 @@ import { createApp, type AppConfig } from '../src/app.js';
 import { poolsDb } from '../src/models/poolsDb.js';
 import type { SmsProvider } from '../src/services/sms/index.js';
 import type { MapsProvider, Place, RouteResult } from '../src/services/maps/types.js';
-import type { LatLng } from '../src/utils/geo.js';
-import {
-  UnimplementedMatcher,
-  type MatchOutcome,
-  type PoolMatch,
-  type PoolMatcher,
-  type PoolSearchCriteria,
-} from '../src/services/pools/matching.js';
+import { distanceMetres, type LatLng } from '../src/utils/geo.js';
+import type { FindOptions, PoolMatcher } from '../src/services/matching/matcher.js';
+import type {
+  OwnerMatch,
+  OwnerPoolCandidate,
+  OwnerSearchResult,
+  PassengerMatch,
+  PassengerRequest,
+  PassengerSearchResult,
+} from '../src/services/matching/types.js';
+import type { SearchNotifier } from '../src/services/realtime/notifier.js';
 
 export const testConfig: AppConfig = {
   CLIENT_ORIGIN: 'http://localhost:5173',
@@ -66,17 +69,86 @@ export class FakeMaps implements MapsProvider {
     if (this.error) throw this.error;
     return this.route;
   }
+
+  itineraryCalls: LatLng[][] = [];
+  async getItinerary(points: LatLng[]) {
+    this.itineraryCalls.push(points);
+    if (this.error) throw this.error;
+    const legs = points.slice(1).map((p, i) => ({
+      distanceMeters: distanceMetres(points[i]!, p),
+      durationSeconds: distanceMetres(points[i]!, p) / 10,
+    }));
+    return {
+      distanceMeters: legs.reduce((s, l) => s + l.distanceMeters, 0),
+      durationSeconds: legs.reduce((s, l) => s + l.durationSeconds, 0),
+      legs,
+    };
+  }
 }
 
-// Records what it was asked to search for, and returns whatever matches the test scripts.
+// Records what it was asked, and returns whatever the test scripts. Never touches the database or routing.
 export class FakeMatcher implements PoolMatcher {
-  calls: PoolSearchCriteria[] = [];
-  matches: PoolMatch[] = [];
+  ownerCalls: { request: PassengerRequest; opts?: FindOptions }[] = [];
+  peerCalls: PassengerRequest[] = [];
+  poolChecks: { request: PassengerRequest; poolId: string }[] = [];
 
-  async findMatches(criteria: PoolSearchCriteria): Promise<MatchOutcome> {
-    this.calls.push(criteria);
-    return { status: 'SEARCHED', sections: ['CAR_OWNER', 'CAB'], matches: this.matches };
+  /** What the owner search returns. Tests change this to simulate pools appearing. */
+  ownerMatches: OwnerMatch[] = [];
+  ownerStatus: 'OK' | 'DEGRADED' = 'OK';
+  groups: PassengerMatch[] = [];
+  /** What checking one specific new pool returns. */
+  poolResult: OwnerMatch | null | 'ROUTING_ERROR' = null;
+
+  async findOwnerMatches(request: PassengerRequest, opts?: FindOptions): Promise<OwnerSearchResult> {
+    this.ownerCalls.push({ request, opts });
+    return {
+      status: this.ownerStatus,
+      sections: ['CAR_OWNER', 'CAB'],
+      matches: this.ownerMatches,
+      checked: this.ownerMatches.length,
+      routingFailures: this.ownerStatus === 'DEGRADED' ? 1 : 0,
+      rejected: {},
+    };
   }
+
+  async findPassengerMatches(request: PassengerRequest): Promise<PassengerSearchResult> {
+    this.peerCalls.push(request);
+    return { status: 'OK', matches: this.groups, checked: this.groups.length, routingFailures: 0, rejected: {} };
+  }
+
+  async evaluatePool(request: PassengerRequest, pool: OwnerPoolCandidate) {
+    this.poolChecks.push({ request, poolId: pool.id });
+    return this.poolResult;
+  }
+}
+
+// Records what the server pushed to users in real time.
+export class RecordingNotifier implements SearchNotifier {
+  sent: { userId: string; event: string; payload: unknown }[] = [];
+  notifyUser(userId: string, event: string, payload: unknown) {
+    this.sent.push({ userId, event, payload });
+  }
+}
+
+export function fakeOwnerMatch(poolId: string, score = 80, over: Partial<OwnerMatch> = {}): OwnerMatch {
+  return {
+    section: 'CAR_OWNER',
+    poolId,
+    score,
+    breakdown: [],
+    reasons: ['Pickup is 1 km from you by road, within your 2 km limit.'],
+    route: { from: 'Indiranagar', to: 'Airport' },
+    vehicle: { category: 'SEDAN', make: 'Honda', model: 'City' },
+    seatsAvailable: 3,
+    fare: { amount: 250, negotiable: false },
+    pickup: { lat: 12.99, lng: 77.65, roadKmFromRequestedPickup: 1, eta: '2030-06-01T08:00:00.000Z' },
+    dropoff: { lat: 13.18, lng: 77.7, roadKmToDestination: 0.5, eta: '2030-06-01T08:40:00.000Z' },
+    driverDetourKm: 0.2,
+    rideKm: 20,
+    driverDepartsAt: '2030-06-01T07:50:00.000Z',
+    evaluatedAt: '2030-06-01T06:00:00.000Z',
+    ...over,
+  };
 }
 
 export function makeApp(
@@ -85,6 +157,7 @@ export function makeApp(
     sms?: SmsProvider;
     maps?: MapsProvider;
     matcher?: PoolMatcher;
+    notifier?: SearchNotifier;
     config?: Partial<AppConfig>;
   } = {},
 ) {
@@ -93,7 +166,8 @@ export function makeApp(
     {
       sms: opts.sms ?? new CapturingSms(),
       maps: opts.maps ?? new FakeMaps(),
-      matcher: opts.matcher ?? new UnimplementedMatcher(),
+      matcher: opts.matcher ?? new FakeMatcher(),
+      notifier: opts.notifier ?? new RecordingNotifier(),
       rateLimitEnabled: opts.rateLimitEnabled,
     },
   );

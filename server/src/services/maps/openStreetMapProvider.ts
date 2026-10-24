@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { AppError } from '../../utils/errors.js';
 import type { LatLng } from '../../utils/geo.js';
 import { logger } from '../../utils/logger.js';
-import type { MapsProvider, Place, RouteResult } from './types.js';
+import type { ItineraryResult, MapsProvider, Place, RouteOptions, RouteResult } from './types.js';
 
 // India's bounding box as minLon,minLat,maxLon,maxLat. Neighbouring countries inside it are filtered out below.
 const INDIA_BBOX = '68.1,6.7,97.4,35.7';
@@ -46,6 +46,19 @@ const osrmResponse = z.object({
         distance: z.number(),
         duration: z.number(),
         geometry: z.object({ coordinates: z.array(z.tuple([z.number(), z.number()])) }), // [lng, lat]
+      }),
+    )
+    .optional(),
+});
+
+const osrmItinerary = z.object({
+  code: z.string(),
+  routes: z
+    .array(
+      z.object({
+        distance: z.number(),
+        duration: z.number(),
+        legs: z.array(z.object({ distance: z.number(), duration: z.number() })),
       }),
     )
     .optional(),
@@ -140,9 +153,10 @@ export class OpenStreetMapProvider implements MapsProvider {
     return places;
   }
 
-  async getRoute(from: LatLng, to: LatLng): Promise<RouteResult> {
+  async getRoute(from: LatLng, to: LatLng, options: RouteOptions = {}): Promise<RouteResult> {
     const coords = `${from.lng},${from.lat};${to.lng},${to.lat}`;
-    const url = `${this.cfg.osrmUrl.replace(/\/$/, '')}/route/v1/driving/${coords}?overview=simplified&geometries=geojson`;
+    const overview = options.detail === 'full' ? 'full' : 'simplified';
+    const url = `${this.cfg.osrmUrl.replace(/\/$/, '')}/route/v1/driving/${coords}?overview=${overview}&geometries=geojson`;
 
     const parsed = osrmResponse.safeParse(await this.getJson(url));
     if (!parsed.success) {
@@ -160,6 +174,30 @@ export class OpenStreetMapProvider implements MapsProvider {
       distanceMeters: route.distance,
       durationSeconds: route.duration,
       path: route.geometry.coordinates.map(([lng, lat]) => [lat, lng] as [number, number]),
+    };
+  }
+
+  async getItinerary(points: LatLng[]): Promise<ItineraryResult> {
+    if (points.length < 2) throw new Error('an itinerary needs at least two points');
+    const coords = points.map((p) => `${p.lng},${p.lat}`).join(';');
+    const url = `${this.cfg.osrmUrl.replace(/\/$/, '')}/route/v1/driving/${coords}?overview=false&steps=false`;
+
+    const parsed = osrmItinerary.safeParse(await this.getJson(url));
+    if (!parsed.success) {
+      logger.warn('maps: unexpected itinerary response shape');
+      throw unavailable();
+    }
+    if (parsed.data.code === 'NoRoute') {
+      throw new AppError(422, 'NO_ROUTE', 'No driving route was found between these places.');
+    }
+    const route = parsed.data.code === 'Ok' ? parsed.data.routes?.[0] : undefined;
+    // One leg per hop. Anything else means the answer cannot be trusted.
+    if (!route || route.legs.length !== points.length - 1) throw unavailable();
+
+    return {
+      distanceMeters: route.distance,
+      durationSeconds: route.duration,
+      legs: route.legs.map((l) => ({ distanceMeters: l.distance, durationSeconds: l.duration })),
     };
   }
 }

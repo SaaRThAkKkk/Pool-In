@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MATCHING } from '../config/matching.js';
 import { POOL_POLICY } from '../config/pools.js';
 import { VEHICLE_CATEGORIES, VEHICLE_CATEGORY_KEYS } from '../config/vehicles.js';
 import { distanceMetres } from '../utils/geo.js';
@@ -83,6 +84,19 @@ export const ownVehicleSchema = z
       .max(POOL_POLICY.MAX_FARE, `Fare cannot exceed ${POOL_POLICY.MAX_FARE.toLocaleString('en-IN')}`)
       .refine(hasAtMostTwoDecimals, 'Fare can have at most 2 decimal places'),
     negotiable: z.boolean().default(false),
+    // How far the owner will go out of their way for a rider. Left out: a default is used.
+    maxDriverDetourKm: z
+      .number({ error: 'Enter a number of kilometres' })
+      .min(0, 'Cannot be negative')
+      .max(MATCHING.MAX_DRIVER_DETOUR_KM, `At most ${MATCHING.MAX_DRIVER_DETOUR_KM} km`)
+      .optional(),
+    // Room for riders' luggage in standard-bag units. Left out: a default for the vehicle type is used.
+    luggageSpaceUnits: z
+      .number({ error: 'Enter a number of bags' })
+      .int('Whole bags only')
+      .min(0, 'Cannot be negative')
+      .max(100, 'At most 100')
+      .optional(),
   })
   .superRefine((v, ctx) => {
     const max = VEHICLE_CATEGORIES[v.vehicle.category].maxPassengers;
@@ -106,6 +120,23 @@ export const poolCabSchema = z
       .int('Whole numbers only')
       .min(1, 'At least 1 person')
       .max(POOL_POLICY.MAX_PEOPLE, `At most ${POOL_POLICY.MAX_PEOPLE} people`),
+    // The passenger's own limits. Pickup left out: a default is used. Drop-off and budget left out: not applied.
+    maxPickupTravelKm: z
+      .number({ error: 'Enter a number of kilometres' })
+      .min(0.1, 'At least 0.1 km')
+      .max(MATCHING.MAX_PICKUP_TRAVEL_KM, `At most ${MATCHING.MAX_PICKUP_TRAVEL_KM} km`)
+      .optional(),
+    maxDropoffTravelKm: z
+      .number({ error: 'Enter a number of kilometres' })
+      .min(0.1, 'At least 0.1 km')
+      .max(MATCHING.MAX_DROPOFF_TRAVEL_KM, `At most ${MATCHING.MAX_DROPOFF_TRAVEL_KM} km`)
+      .optional(),
+    maxBudget: z
+      .number({ error: 'Enter an amount' })
+      .min(1, 'At least ₹1')
+      .max(POOL_POLICY.MAX_FARE, `At most ${POOL_POLICY.MAX_FARE.toLocaleString('en-IN')}`)
+      .refine(hasAtMostTwoDecimals, 'At most 2 decimal places')
+      .optional(),
   })
   .superRefine(checkRoute);
 

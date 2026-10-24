@@ -4,7 +4,7 @@ import { POOL_POLICY } from '../src/config/pools.js';
 import { CabPool } from '../src/models/CabPool.js';
 import { CarOwnerPool } from '../src/models/CarOwnerPool.js';
 import { User } from '../src/models/User.js';
-import { clearDb, FakeMatcher, makeApp, startTestDb, stopTestDb } from './helpers.js';
+import { clearDb, fakeOwnerMatch, FakeMaps, FakeMatcher, makeApp, RecordingNotifier, startTestDb, stopTestDb } from './helpers.js';
 
 const matcher = new FakeMatcher();
 const app = makeApp({ matcher });
@@ -50,8 +50,10 @@ beforeAll(startTestDb);
 afterAll(stopTestDb);
 beforeEach(async () => {
   await clearDb();
-  matcher.calls = [];
-  matcher.matches = [];
+  matcher.ownerCalls = [];
+  matcher.peerCalls = [];
+  matcher.ownerMatches = [];
+  matcher.ownerStatus = 'OK';
 });
 
 describe('POST /api/pools: authentication', () => {
@@ -89,7 +91,69 @@ describe('POST /api/pools: "I own the vehicle" -> car-owner section', () => {
   it('does not search for matches (that is only for cab requests)', async () => {
     const user = await signUp();
     await poolIn(user, ownVehicle());
-    expect(matcher.calls).toHaveLength(0);
+    expect(matcher.ownerCalls).toHaveLength(0);
+  });
+
+  it('stores the driving route once, at publish time, so searches do not have to recompute it', async () => {
+    const user = await signUp();
+    const res = await poolIn(user, ownVehicle());
+    const stored = await CarOwnerPool.findById(res.body.data.pool.id);
+
+    expect(stored!.route!.distanceMeters).toBeGreaterThan(0);
+    expect(stored!.route!.durationSeconds).toBeGreaterThan(0);
+    expect(stored!.routeLine!.type).toBe('LineString');
+    expect(stored!.routeLine!.coordinates.length).toBeGreaterThanOrEqual(2);
+    expect(res.body.data.pool.matchable).toBe(true);
+  });
+
+  it('still publishes the pool when routing is down, but marks it as not matchable yet', async () => {
+    const maps = new FakeMaps();
+    maps.error = new Error('routing is down');
+    const down = makeApp({ maps });
+    const user = await signUp('down@example.com', '9000000003', down);
+
+    const res = await poolIn(user, ownVehicle());
+    expect(res.status).toBe(201);
+    expect(res.body.data.pool.matchable).toBe(false);
+    expect((await CarOwnerPool.findById(res.body.data.pool.id))!.routeLine).toBeUndefined();
+  });
+
+  it('keeps the owner\'s tolerances: a default detour limit, or the one they chose', async () => {
+    const user = await signUp();
+    const dflt = await poolIn(user, ownVehicle());
+    expect(dflt.body.data.pool.maxDriverDetourKm).toBe(5);
+    expect(dflt.body.data.pool.luggageSpaceUnits).toBeNull();
+
+    const chosen = await poolIn(user, ownVehicle({ destination: { label: 'Elsewhere' }, maxDriverDetourKm: 2.5, luggageSpaceUnits: 6 }));
+    expect(chosen.body.data.pool).toMatchObject({ maxDriverDetourKm: 2.5, luggageSpaceUnits: 6 });
+  });
+
+  it.each([
+    ['a negative detour limit', { maxDriverDetourKm: -1 }, 'maxDriverDetourKm'],
+    ['an absurd detour limit', { maxDriverDetourKm: 500 }, 'maxDriverDetourKm'],
+    ['fractional luggage space', { luggageSpaceUnits: 2.5 }, 'luggageSpaceUnits'],
+    ['negative luggage space', { luggageSpaceUnits: -2 }, 'luggageSpaceUnits'],
+  ])('rejects %s', async (_label, override, field) => {
+    const user = await signUp();
+    const res = await poolIn(user, ownVehicle(override));
+    expect(res.status).toBe(400);
+    expect(res.body.error.details.map((d: { path: string }) => d.path)).toContain(field);
+  });
+
+  it('tells passengers who are searching right now about the new pool', async () => {
+    const searchMatcher = new FakeMatcher();
+    const notifier = new RecordingNotifier();
+    const live = makeApp({ matcher: searchMatcher, notifier });
+    const passenger = await signUp('p@example.com', '9000000004', live);
+    const owner = await signUp('o@example.com', '9000000005', live);
+
+    expect((await poolIn(passenger, poolCab())).body.data.outcome).toBe('SEARCH_STARTED');
+    searchMatcher.poolResult = fakeOwnerMatch('will-be-replaced');
+    await poolIn(owner, ownVehicle());
+
+    expect(searchMatcher.poolChecks).toHaveLength(1);
+    expect(notifier.sent).toHaveLength(1);
+    expect(notifier.sent[0]).toMatchObject({ event: 'search:update' });
   });
 
   it('stores a fixed fare when not negotiable, and defaults to fixed and zero luggage', async () => {
@@ -129,56 +193,106 @@ describe('POST /api/pools: "I own the vehicle" -> car-owner section', () => {
   });
 });
 
-describe('POST /api/pools: "Pool a cab" -> search both sections, else cab section', () => {
-  it('searches first, then saves a request in the cab section only', async () => {
+describe('POST /api/pools: "Pool a cab" -> match now, else a five-minute search in the cab section', () => {
+  it('runs the matching algorithm immediately, with the passenger\'s request and tolerances', async () => {
+    const user = await signUp();
+    await poolIn(user, poolCab({ maxPickupTravelKm: 1.5, maxDropoffTravelKm: 3, maxBudget: 400 }));
+
+    expect(matcher.ownerCalls).toHaveLength(1);
+    expect(matcher.ownerCalls[0]!.request).toMatchObject({
+      origin: { lat: 12.9784, lng: 77.6408 },
+      destination: { lat: 13.1986, lng: 77.7066 },
+      people: 2,
+      // large 2 + cabin 1 + 2 backpacks (0.5 each) = 4 standard bags
+      luggageUnits: 4,
+      maxPickupTravelKm: 1.5,
+      maxDropoffTravelKm: 3,
+      maxBudget: 400,
+    });
+    expect(matcher.ownerCalls[0]!.request.arriveBy).toBeInstanceOf(Date);
+  });
+
+  it('with no match, starts a five-minute search saved in the cab section only', async () => {
+    const before = Date.now();
     const user = await signUp();
     const res = await poolIn(user, poolCab());
 
     expect(res.status).toBe(201);
-    expect(res.body.data).toMatchObject({ outcome: 'REQUEST_CREATED', section: 'CAB' });
+    expect(res.body.data).toMatchObject({ outcome: 'SEARCH_STARTED', section: 'CAB', windowSeconds: 300 });
     expect(res.body.data.pool).toMatchObject({
       section: 'CAB',
       people: 2,
-      status: 'OPEN',
+      status: 'SEARCHING',
       luggage: { large: 1, medium: 0, cabin: 1, backpack: 2, oversized: 0 },
     });
     expect(await counts()).toEqual({ owner: 0, cab: 1 });
 
-    expect(matcher.calls).toHaveLength(1);
-    expect(matcher.calls[0]).toMatchObject({
-      origin: { label: 'Indiranagar, Bengaluru' },
-      destination: { label: 'Kempegowda Airport' },
-      people: 2,
-      luggage: { large: 1, cabin: 1, backpack: 2 },
-    });
-    expect(matcher.calls[0]!.arriveBy).toBeInstanceOf(Date);
+    const stored = await CabPool.findById(res.body.data.pool.id);
+    expect(stored!.searchExpiresAt!.getTime() - stored!.searchStartedAt!.getTime()).toBe(300_000);
+    expect(stored!.searchStartedAt!.getTime()).toBeGreaterThanOrEqual(before);
+    expect(stored!.searchCheckedAt).toBeInstanceOf(Date); // every pool was checked, so later checks start from here
   });
 
-  it('reports that both sections are covered by the search', async () => {
-    const user = await signUp();
-    const res = await poolIn(user, poolCab());
-    expect(res.body.data.matching.sections).toEqual(['CAR_OWNER', 'CAB']);
-  });
-
-  it('creates nothing when a match is found, and returns the matches instead', async () => {
-    matcher.matches = [{ id: 'abc123', section: 'CAR_OWNER' }];
+  it('creates nothing when a feasible pool is found, and returns the ranked matches instead', async () => {
+    matcher.ownerMatches = [fakeOwnerMatch('p1', 91), fakeOwnerMatch('p2', 70)];
     const user = await signUp();
     const res = await poolIn(user, poolCab());
 
     expect(res.status).toBe(200);
     expect(res.body.data.outcome).toBe('MATCHES_FOUND');
-    expect(res.body.data.matching.matches).toEqual([{ id: 'abc123', section: 'CAR_OWNER' }]);
+    expect(res.body.data.matching.matches.map((m: { poolId: string }) => m.poolId)).toEqual(['p1', 'p2']);
     expect(await counts()).toEqual({ owner: 0, cab: 0 });
   });
 
-  it('with the real placeholder matcher, says matching is not available yet but still saves the request', async () => {
-    const real = makeApp(); // default UnimplementedMatcher
-    const user = await signUp('real@example.com', '9000000002', real);
+  it('reports that both sections are covered by the search', async () => {
+    matcher.ownerMatches = [fakeOwnerMatch('p1')];
+    const user = await signUp();
+    const res = await poolIn(user, poolCab());
+    expect(res.body.data.matching.sections).toEqual(['CAR_OWNER', 'CAB']);
+  });
+
+  it('uses the default pickup limit when the passenger does not set one, and no drop-off or budget limit', async () => {
+    const user = await signUp();
     const res = await poolIn(user, poolCab());
 
+    expect(res.body.data.pool).toMatchObject({ maxPickupTravelKm: 2, maxDropoffTravelKm: null, maxBudget: null });
+    expect(matcher.ownerCalls[0]!.request.maxPickupTravelKm).toBe(2);
+    expect(matcher.ownerCalls[0]!.request).not.toHaveProperty('maxDropoffTravelKm');
+    expect(matcher.ownerCalls[0]!.request).not.toHaveProperty('maxBudget');
+  });
+
+  it('does not mark the search as fully checked when some pools could not be (routing trouble)', async () => {
+    matcher.ownerStatus = 'DEGRADED';
+    const user = await signUp();
+    const res = await poolIn(user, poolCab());
+
+    expect(res.body.data.matching.status).toBe('DEGRADED');
+    expect((await CabPool.findById(res.body.data.pool.id))!.searchCheckedAt).toBeUndefined();
+  });
+
+  it('saves a plain request without searching when place search was down (no coordinates)', async () => {
+    const user = await signUp();
+    const res = await poolIn(user, poolCab({ origin: { label: 'Typed start' }, destination: { label: 'Typed end' } }));
+
     expect(res.status).toBe(201);
-    expect(res.body.data.matching).toEqual({ status: 'NOT_AVAILABLE', sections: ['CAR_OWNER', 'CAB'], matches: [] });
-    expect(res.body.data.outcome).toBe('REQUEST_CREATED');
+    expect(res.body.data).toMatchObject({ outcome: 'REQUEST_CREATED', matching: { status: 'NEEDS_COORDINATES' } });
+    expect(res.body.data.pool.status).toBe('OPEN');
+    expect(matcher.ownerCalls).toHaveLength(0);
+  });
+
+  it.each([
+    ['a pickup limit below the minimum', { maxPickupTravelKm: 0 }, 'maxPickupTravelKm'],
+    ['an absurd pickup limit', { maxPickupTravelKm: 100 }, 'maxPickupTravelKm'],
+    ['an absurd drop-off limit', { maxDropoffTravelKm: 100 }, 'maxDropoffTravelKm'],
+    ['a zero budget', { maxBudget: 0 }, 'maxBudget'],
+    ['a budget with three decimals', { maxBudget: 10.123 }, 'maxBudget'],
+    ['a budget as text', { maxBudget: '300' }, 'maxBudget'],
+  ])('rejects %s', async (_label, override, field) => {
+    const user = await signUp();
+    const res = await poolIn(user, poolCab(override));
+    expect(res.status).toBe(400);
+    expect(res.body.error.details.map((d: { path: string }) => d.path)).toContain(field);
+    expect(matcher.ownerCalls).toHaveLength(0);
   });
 
   it.each([
@@ -272,12 +386,14 @@ describe('POST /api/pools: shared validation', () => {
 describe('duplicates and limits', () => {
   it('rejects an accidental duplicate in the same section, even at the same moment', async () => {
     const user = await signUp();
-    const results = await Promise.all([poolIn(user, ownVehicle()), poolIn(user, ownVehicle()), poolIn(user, ownVehicle())]);
+    const ownerBody = ownVehicle(); // one body, so all three requests really are the same trip
+    const results = await Promise.all([poolIn(user, ownerBody), poolIn(user, ownerBody), poolIn(user, ownerBody)]);
     expect(results.map((r) => r.status).sort()).toEqual([201, 409, 409]);
     expect(results.find((r) => r.status === 409)!.body.error.code).toBe('DUPLICATE_POOL');
     expect((await counts()).owner).toBe(1);
 
-    const cabs = await Promise.all([poolIn(user, poolCab()), poolIn(user, poolCab())]);
+    const cabBody = poolCab(); // one body, so both requests really are the same trip
+    const cabs = await Promise.all([poolIn(user, cabBody), poolIn(user, cabBody)]);
     expect(cabs.map((r) => r.status).sort()).toEqual([201, 409]);
     expect((await counts()).cab).toBe(1);
   });

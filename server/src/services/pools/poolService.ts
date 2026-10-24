@@ -1,54 +1,42 @@
-import { ACTIVE_CAB_STATUSES, ACTIVE_CAR_OWNER_STATUSES, POOL_POLICY } from '../../config/pools.js';
-import { CabPool, type CabPoolDocument } from '../../models/CabPool.js';
+import { MATCHING } from '../../config/matching.js';
+import { ACTIVE_CAR_OWNER_STATUSES, POOL_POLICY } from '../../config/pools.js';
+import { CabPool } from '../../models/CabPool.js';
 import { CarOwnerPool, type CarOwnerPoolDocument } from '../../models/CarOwnerPool.js';
 import { toCabPoolDto, toCarOwnerPoolDto, type PoolDto } from '../../models/poolDto.js';
-import { toPoint } from '../../models/poolParts.js';
 import type { UserDocument } from '../../models/User.js';
-import { AppError, conflict, notFound } from '../../utils/errors.js';
-import { normalizeLabel, type OwnVehicleInput, type PoolCabInput } from '../../validators/pools.js';
-import type { MatchOutcome, PoolMatcher } from './matching.js';
+import { notFound } from '../../utils/errors.js';
+import { simplifyToMaxPoints } from '../../utils/geo.js';
+import { logger } from '../../utils/logger.js';
+import type { OwnVehicleInput } from '../../validators/pools.js';
+import type { MapsProvider } from '../maps/types.js';
+import { baseFields, checkArrivalWindow, duplicate, expireStaleSearches, isDuplicateKeyError, tooManyActive } from './poolCommon.js';
 
-type RouteInput = OwnVehicleInput | PoolCabInput;
-
-const dedupeKey = (i: RouteInput) =>
-  [i.origin.label, i.destination.label].map(normalizeLabel).join('|') + `|${i.arriveBy.getTime()}`;
-
-const isDuplicateKeyError = (err: unknown) =>
-  typeof err === 'object' && err !== null && (err as { code?: number }).code === 11000;
-
-function checkArrivalWindow(arriveBy: Date, now: Date) {
-  const lead = arriveBy.getTime() - now.getTime();
-  if (lead >= POOL_POLICY.MIN_LEAD_MS && lead <= POOL_POLICY.MAX_LEAD_MS) return;
-  const message =
-    lead < POOL_POLICY.MIN_LEAD_MS
-      ? `Arrival time must be at least ${POOL_POLICY.MIN_LEAD_MS / 60_000} minutes from now`
-      : `Arrival time can be at most ${POOL_POLICY.MAX_LEAD_MS / 86_400_000} days from now`;
-  throw new AppError(400, 'VALIDATION_ERROR', 'Invalid input', [{ path: 'arriveBy', message }]);
+// The owner's drive from start to destination, worked out once at publish time and stored with the pool.
+// If routing is unavailable the pool is still published, but it cannot be matched until it has a route.
+async function plannedRoute(maps: MapsProvider, input: OwnVehicleInput) {
+  const from = input.origin.coordinates;
+  const to = input.destination.coordinates;
+  if (!from || !to) return {};
+  try {
+    const route = await maps.getRoute(from, to, { detail: 'full' });
+    const line = simplifyToMaxPoints(route.path, MATCHING.ROUTE_MAX_POINTS);
+    if (line.length < 2) return {};
+    return {
+      route: { distanceMeters: route.distanceMeters, durationSeconds: route.durationSeconds, computedAt: new Date() },
+      routeLine: { type: 'LineString' as const, coordinates: line.map(([lat, lng]) => [lng, lat]) },
+    };
+  } catch (err) {
+    logger.warn({ err }, 'could not store a route for a new pool; it will not be matchable yet');
+    return {};
+  }
 }
-
-const tooManyActive = () =>
-  conflict(
-    'TOO_MANY_ACTIVE_POOLS',
-    `You can have at most ${POOL_POLICY.MAX_ACTIVE_PER_USER} active pools of this kind. Cancel or complete one first.`,
-  );
-const duplicate = () => conflict('DUPLICATE_POOL', 'You already have a pool for this route and arrival time');
-
-const baseFields = (user: UserDocument, i: RouteInput) => ({
-  userId: user._id,
-  origin: i.origin,
-  destination: i.destination,
-  originPoint: toPoint(i.origin.coordinates),
-  destinationPoint: toPoint(i.destination.coordinates),
-  arriveBy: i.arriveBy,
-  luggage: i.luggage,
-  dedupeKey: dedupeKey(i),
-});
 
 // "I own the vehicle": saved in the CAR-OWNER section. Every server-controlled field (user, status, seat
 // counters) is set here, never taken from the request.
 export async function createCarOwnerPool(
   user: UserDocument,
   input: OwnVehicleInput,
+  deps: { maps: MapsProvider },
   now = new Date(),
 ): Promise<CarOwnerPoolDocument> {
   checkArrivalWindow(input.arriveBy, now);
@@ -56,9 +44,12 @@ export async function createCarOwnerPool(
   const active = await CarOwnerPool.countDocuments({ userId: user._id, status: { $in: [...ACTIVE_CAR_OWNER_STATUSES] } });
   if (active >= POOL_POLICY.MAX_ACTIVE_PER_USER) throw tooManyActive();
 
+  const route = await plannedRoute(deps.maps, input);
+
   try {
     return await CarOwnerPool.create({
       ...baseFields(user, input),
+      ...route,
       vehicle: input.vehicle,
       seatsOffered: input.seats,
       availableSeats: input.seats,
@@ -67,6 +58,8 @@ export async function createCarOwnerPool(
       askingPrice: input.askingPrice,
       currency: 'INR',
       priceBasis: 'PER_PASSENGER',
+      maxDriverDetourKm: input.maxDriverDetourKm ?? MATCHING.DEFAULT_MAX_DRIVER_DETOUR_KM,
+      ...(input.luggageSpaceUnits !== undefined ? { luggageSpaceUnits: input.luggageSpaceUnits } : {}),
       status: 'OPEN',
     });
   } catch (err) {
@@ -75,44 +68,9 @@ export async function createCarOwnerPool(
   }
 }
 
-export type CabOutcome =
-  | { outcome: 'MATCHES_FOUND'; matching: MatchOutcome; pool?: undefined }
-  | { outcome: 'REQUEST_CREATED'; matching: MatchOutcome; pool: CabPoolDocument };
-
-// "Pool a cab": first search for a matching pool in BOTH sections; only when none is found, save a new
-// request in the CAB section. (Matching itself is a placeholder for now.)
-export async function poolACab(
-  user: UserDocument,
-  input: PoolCabInput,
-  matcher: PoolMatcher,
-  now = new Date(),
-): Promise<CabOutcome> {
-  checkArrivalWindow(input.arriveBy, now);
-
-  const matching = await matcher.findMatches({
-    userId: user.id,
-    origin: input.origin,
-    destination: input.destination,
-    arriveBy: input.arriveBy,
-    luggage: input.luggage,
-    people: input.people,
-  });
-  if (matching.matches.length > 0) return { outcome: 'MATCHES_FOUND', matching };
-
-  const active = await CabPool.countDocuments({ userId: user._id, status: { $in: [...ACTIVE_CAB_STATUSES] } });
-  if (active >= POOL_POLICY.MAX_ACTIVE_PER_USER) throw tooManyActive();
-
-  try {
-    const pool = await CabPool.create({ ...baseFields(user, input), peopleCount: input.people, status: 'OPEN' });
-    return { outcome: 'REQUEST_CREATED', matching, pool };
-  } catch (err) {
-    if (isDuplicateKeyError(err)) throw duplicate();
-    throw err;
-  }
-}
-
 // Everything the user has created, from both sections, newest first.
-export async function listMyPools(user: UserDocument): Promise<PoolDto[]> {
+export async function listMyPools(user: UserDocument, now = new Date()): Promise<PoolDto[]> {
+  await expireStaleSearches(user._id, now);
   const [owner, cab] = await Promise.all([
     CarOwnerPool.find({ userId: user._id }).sort({ createdAt: -1 }).limit(100),
     CabPool.find({ userId: user._id }).sort({ createdAt: -1 }).limit(100),
@@ -122,10 +80,12 @@ export async function listMyPools(user: UserDocument): Promise<PoolDto[]> {
 }
 
 // Returns 404 (not 403) for someone else's pool so ids cannot be probed.
-export async function getMyPool(user: UserDocument, id: string): Promise<PoolDto> {
+export async function getMyPool(user: UserDocument, id: string, now = new Date()): Promise<PoolDto> {
+  await expireStaleSearches(user._id, now);
   const owner = await CarOwnerPool.findOne({ _id: id, userId: user._id });
   if (owner) return toCarOwnerPoolDto(owner);
   const cab = await CabPool.findOne({ _id: id, userId: user._id });
   if (cab) return toCabPoolDto(cab);
   throw notFound('Pool not found');
 }
+

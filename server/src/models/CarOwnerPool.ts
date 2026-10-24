@@ -4,7 +4,8 @@ import {
   CAR_OWNER_COLLECTION,
 } from '../config/pools.js';
 import { VEHICLE_CATEGORY_KEYS } from '../config/vehicles.js';
-import { locationSchema, luggageSchema, pointSchema } from './poolParts.js';
+import { MATCHING } from '../config/matching.js';
+import { lineStringSchema, locationSchema, luggageSchema, pointSchema } from './poolParts.js';
 import { poolsDb } from './poolsDb.js';
 
 export const CAR_OWNER_STATUSES = [
@@ -42,6 +43,43 @@ const carOwnerPoolSchema = new Schema(
       ),
       required: true,
     },
+    // --- Matching ---------------------------------------------------------------------------------------------
+    /** The most extra distance the owner will drive to pick someone up. */
+    maxDriverDetourKm: {
+      type: Number,
+      default: MATCHING.DEFAULT_MAX_DRIVER_DETOUR_KM,
+      min: 0,
+      max: MATCHING.MAX_DRIVER_DETOUR_KM,
+    },
+    /** Space the owner offers for riders' luggage, in standard-bag units. When absent, a default for the vehicle type is used. */
+    luggageSpaceUnits: { type: Number, min: 0, max: 100, required: false },
+    /** Luggage space already promised to riders who have joined. */
+    luggageUsedUnits: { type: Number, default: 0, min: 0 },
+    /** The owner's planned drive, worked out once when the pool is published (not on every search). */
+    route: {
+      type: new Schema(
+        { distanceMeters: Number, durationSeconds: Number, computedAt: Date },
+        { _id: false },
+      ),
+      required: false,
+    },
+    routeLine: { type: lineStringSchema, required: false },
+    /** Riders who have already joined; their stops stay in the itinerary when someone else is matched. */
+    confirmedStops: {
+      type: [
+        new Schema(
+          {
+            userId: Schema.Types.ObjectId,
+            seats: Number,
+            luggageUnits: Number,
+            pickup: new Schema({ lat: Number, lng: Number }, { _id: false }),
+            dropoff: new Schema({ lat: Number, lng: Number }, { _id: false }),
+          },
+          { _id: false },
+        ),
+      ],
+      default: [],
+    },
     seatsOffered: { type: Number, required: true, min: 1 },
     availableSeats: { type: Number, required: true, min: 0 },
     currentPassengerCount: { type: Number, default: 0, min: 0 },
@@ -63,6 +101,8 @@ carOwnerPoolSchema.index({ status: 1, availableSeats: 1, askingPrice: 1 });
 carOwnerPoolSchema.index({ status: 1, 'vehicle.category': 1, arriveBy: 1 });
 carOwnerPoolSchema.index({ originPoint: '2dsphere' });
 carOwnerPoolSchema.index({ destinationPoint: '2dsphere' });
+// "Which routes pass near this pickup and this destination?" (a driver's route can pass a passenger far from their start)
+carOwnerPoolSchema.index({ routeLine: '2dsphere' });
 // One active listing per user per route and arrival time (race-safe duplicate guard).
 carOwnerPoolSchema.index(
   { userId: 1, dedupeKey: 1 },

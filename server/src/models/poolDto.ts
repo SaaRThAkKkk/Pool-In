@@ -34,6 +34,10 @@ function common(pool: CarOwnerPoolDocument | CabPoolDocument, section: PoolSecti
 export function toCarOwnerPoolDto(pool: CarOwnerPoolDocument) {
   return {
     ...common(pool, 'CAR_OWNER'),
+    maxDriverDetourKm: pool.maxDriverDetourKm ?? null,
+    luggageSpaceUnits: pool.luggageSpaceUnits ?? null,
+    /** False when no route is stored for this pool, so passengers cannot be matched with it yet. */
+    matchable: Boolean(pool.routeLine?.coordinates?.length),
     vehicle: { category: pool.vehicle.category, make: pool.vehicle.make, model: pool.vehicle.model },
     seats: { offered: pool.seatsOffered, available: pool.availableSeats, taken: pool.currentPassengerCount },
     pricing: {
@@ -46,7 +50,14 @@ export function toCarOwnerPoolDto(pool: CarOwnerPoolDocument) {
 }
 
 export function toCabPoolDto(pool: CabPoolDocument) {
-  return { ...common(pool, 'CAB'), people: pool.peopleCount };
+  return {
+    ...common(pool, 'CAB'),
+    people: pool.peopleCount,
+    maxPickupTravelKm: pool.maxPickupTravelKm ?? null,
+    maxDropoffTravelKm: pool.maxDropoffTravelKm ?? null,
+    maxBudget: pool.maxBudget ?? null,
+    searchExpiresAt: pool.searchExpiresAt ?? null,
+  };
 }
 
 export type CarOwnerPoolDto = ReturnType<typeof toCarOwnerPoolDto>;

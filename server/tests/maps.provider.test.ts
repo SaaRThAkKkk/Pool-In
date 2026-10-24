@@ -160,14 +160,110 @@ describe('OpenStreetMapProvider.getRoute', () => {
   });
 });
 
+describe('OpenStreetMapProvider.getRoute detail', () => {
+  const from = { lat: 12.9784, lng: 77.6408 };
+  const to = { lat: 13.1986, lng: 77.7064 };
+
+  it('asks for the simplified geometry by default and the full geometry when requested', async () => {
+    const fetchFn = vi.fn(async () => json(osrmSample));
+    await provider(fetchFn).getRoute(from, to);
+    await provider(fetchFn).getRoute(from, to, { detail: 'full' });
+
+    const urls = (fetchFn.mock.calls as unknown as [string][]).map(([u]) => u);
+    expect(urls[0]).toContain('overview=simplified');
+    expect(urls[1]).toContain('overview=full');
+  });
+});
+
+describe('OpenStreetMapProvider.getItinerary', () => {
+  const points = [
+    { lat: 12.9784, lng: 77.6408 },
+    { lat: 13.05, lng: 77.66 },
+    { lat: 13.1, lng: 77.69 },
+    { lat: 13.1986, lng: 77.7064 },
+  ];
+  const sample = {
+    code: 'Ok',
+    routes: [
+      {
+        distance: 35000,
+        duration: 2100,
+        legs: [
+          { distance: 10000, duration: 600, steps: [], summary: '' },
+          { distance: 8000, duration: 500, steps: [], summary: '' },
+          { distance: 17000, duration: 1000, steps: [], summary: '' },
+        ],
+      },
+    ],
+    waypoints: [],
+  };
+
+  it('asks for every waypoint in lng,lat order and returns the total and each leg', async () => {
+    const fetchFn = vi.fn(async () => json(sample));
+    const result = await provider(fetchFn).getItinerary(points);
+
+    const [url] = fetchFn.mock.calls[0] as unknown as [string];
+    expect(url).toContain('/route/v1/driving/77.6408,12.9784;77.66,13.05;77.69,13.1;77.7064,13.1986');
+    expect(url).toContain('overview=false');
+    expect(result.distanceMeters).toBe(35000);
+    expect(result.durationSeconds).toBe(2100);
+    expect(result.legs).toEqual([
+      { distanceMeters: 10000, durationSeconds: 600 },
+      { distanceMeters: 8000, durationSeconds: 500 },
+      { distanceMeters: 17000, durationSeconds: 1000 },
+    ]);
+  });
+
+  it('refuses an itinerary with fewer than two points', async () => {
+    await expect(provider(vi.fn()).getItinerary([points[0]!])).rejects.toThrow(/at least two points/);
+  });
+
+  it('reports "no route" as 422 NO_ROUTE', async () => {
+    const err = await provider(vi.fn(async () => json({ code: 'NoRoute' }, 400))).getItinerary(points).catch((e) => e);
+    expect(err).toMatchObject({ status: 422, code: 'NO_ROUTE' });
+  });
+
+  it.each([
+    ['an upstream 500', () => json({}, 500)],
+    ['a different number of legs than hops (cannot be trusted)', () => json({ ...sample, routes: [{ ...sample.routes[0], legs: sample.routes[0]!.legs.slice(1) }] })],
+    ['an OK answer without routes', () => json({ code: 'Ok', routes: [] })],
+    ['a malformed body', () => json({ code: 'Ok', routes: [{ distance: 'far' }] })],
+  ])('turns %s into a 502, never a guessed answer', async (_label, respond) => {
+    await expect(provider(vi.fn(async () => respond())).getItinerary(points)).rejects.toMatchObject({
+      status: 502,
+      code: 'MAPS_UNAVAILABLE',
+    });
+  });
+});
+
 describe('CachedMapsProvider', () => {
   function counting() {
     const inner: MapsProvider = {
       searchPlaces: vi.fn(async (q: string) => [{ id: q, title: q, subtitle: '', label: q, lat: 1, lng: 2 }]),
       getRoute: vi.fn(async () => ({ distanceMeters: 1, durationSeconds: 2, path: [[1, 2] as [number, number]] })),
+      getItinerary: vi.fn(async () => ({ distanceMeters: 3, durationSeconds: 4, legs: [{ distanceMeters: 3, durationSeconds: 4 }] })),
     };
     return inner;
   }
+
+  it('caches itineraries by their rounded waypoints, and keeps full and simplified routes apart', async () => {
+    const inner = counting();
+    const cached = new CachedMapsProvider(inner);
+    const a = { lat: 12.97841, lng: 77.64081 };
+    const b = { lat: 13.1986, lng: 77.7064 };
+
+    await cached.getItinerary([a, b]);
+    await cached.getItinerary([{ lat: 12.97842, lng: 77.64082 }, b]);
+    expect(inner.getItinerary).toHaveBeenCalledTimes(1);
+    await cached.getItinerary([b, a]); // different order is a different drive
+    expect(inner.getItinerary).toHaveBeenCalledTimes(2);
+
+    await cached.getRoute(a, b);
+    await cached.getRoute(a, b, { detail: 'full' });
+    expect(inner.getRoute).toHaveBeenCalledTimes(2);
+    await cached.getRoute(a, b, { detail: 'full' });
+    expect(inner.getRoute).toHaveBeenCalledTimes(2);
+  });
 
   it('serves repeated searches from the cache, ignoring case and spacing', async () => {
     const inner = counting();

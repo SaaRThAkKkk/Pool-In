@@ -18,4 +18,5 @@ export const CAB_COLLECTION = 'cab_pools';
 
 // Statuses that still occupy a slot for the user (anything not finished or cancelled).
 export const ACTIVE_CAR_OWNER_STATUSES = ['OPEN', 'PARTIALLY_FILLED', 'FULL', 'CONFIRMED', 'IN_PROGRESS'] as const;
-export const ACTIVE_CAB_STATUSES = ['OPEN', 'MATCHED', 'CONFIRMED'] as const;
+// SEARCHING counts as active so the same search cannot be started twice at once.
+export const ACTIVE_CAB_STATUSES = ['SEARCHING', 'OPEN', 'MATCHED', 'CONFIRMED'] as const;

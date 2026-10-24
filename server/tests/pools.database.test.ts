@@ -198,6 +198,9 @@ describe('search-ready storage', () => {
       cab({ origin: { label: 'Mumbai', coordinates: MUMBAI }, destination: { label: 'Faraway cab trip', coordinates: { lat: 19.2, lng: 72.9 } } }),
     );
 
+    // A new cab request starts as SEARCHING; it becomes OPEN once its owner asks to be matched with other passengers.
+    await CabPool.updateMany({}, { status: 'OPEN' });
+
     const query = {
       status: 'OPEN',
       arriveBy: { $gte: new Date(hoursFromNow(24)), $lte: new Date(hoursFromNow(72)) },

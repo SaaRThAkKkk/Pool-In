@@ -6,7 +6,9 @@ import { createApp } from './app.js';
 import { createSmsProvider } from './services/sms/index.js';
 import { CachedMapsProvider } from './services/maps/cachedMapsProvider.js';
 import { OpenStreetMapProvider } from './services/maps/openStreetMapProvider.js';
-import { UnimplementedMatcher } from './services/pools/matching.js';
+import { MongoCandidateRepository } from './services/matching/candidateRepository.js';
+import { CarpoolMatcher } from './services/matching/matcher.js';
+import { DeferredNotifier } from './services/realtime/notifier.js';
 import { createSocketServer } from './sockets/index.js';
 import { logger } from './utils/logger.js';
 
@@ -20,9 +22,13 @@ async function main() {
   const maps = new CachedMapsProvider(
     new OpenStreetMapProvider({ photonUrl: env.PHOTON_URL, osrmUrl: env.OSRM_URL, userAgent: env.MAPS_USER_AGENT }),
   );
-  const app = createApp(env, { sms: createSmsProvider(env), maps, matcher: new UnimplementedMatcher() });
+  // The matcher uses the same (cached) routing service as the rest of the app, and the database for candidates.
+  const matcher = new CarpoolMatcher({ maps, candidates: new MongoCandidateRepository() });
+  // The HTTP app is built before the socket server (which needs the HTTP server), so notifications are wired afterwards.
+  const notifier = new DeferredNotifier();
+  const app = createApp(env, { sms: createSmsProvider(env), maps, matcher, notifier });
   const server = http.createServer(app);
-  createSocketServer(server, env);
+  notifier.attach(createSocketServer(server, env).notifier);
 
   server.listen(env.PORT, () => logger.info(`Pool-In API listening on port ${env.PORT}`));
 

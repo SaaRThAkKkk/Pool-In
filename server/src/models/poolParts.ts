@@ -29,6 +29,16 @@ export const pointSchema = new Schema(
   { _id: false },
 );
 
+// The owner's driving route as a GeoJSON line ([lng, lat] pairs), so a search can ask the database which
+// routes pass near a passenger's pickup and destination.
+export const lineStringSchema = new Schema(
+  {
+    type: { type: String, enum: ['LineString'], required: true },
+    coordinates: { type: [[Number]], required: true },
+  },
+  { _id: false },
+);
+
 export const LUGGAGE_TYPES = ['large', 'medium', 'cabin', 'backpack', 'oversized'] as const;
 export type Luggage = Record<(typeof LUGGAGE_TYPES)[number], number>;
 
