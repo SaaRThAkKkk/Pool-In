@@ -83,7 +83,9 @@ First time on a machine: `npm run install:all`, then copy `server/.env.example` 
 - **Search groundwork (search itself NOT built yet):** 2dsphere indexes on both sections' points; car-owner indexes for status+arriveBy, status+seats+price, status+vehicle+arriveBy; cab indexes for status+arriveBy. The search endpoint, filters UI and the join/browse screens are still waiting for the user's go.
 - **Old test pools are not migrated:** pools created before the 2026-10-23 redesign lived in `rides` collections (in `pool-in` and/or `pool-in-pools`), lack luggage and arrival time, and are ignored. The earlier `migrate:rides` script was deleted. They can be deleted by hand in Atlas.
 
-**Tests:** 200 server, 118 client, all passing at last run. The Leaflet map itself is mocked in jsdom tests, so it has only been checked by build, not rendered in a test.
+- **Safety page** (`/safety`, `pages/SafetyPage.tsx`, `features/safety/`): nine square cards in a grid, each with an icon, title, one-line summary and a status chip (Live / Rolling out / Planned). Hover, keyboard focus, or a tap slides a gradient panel with the full detail up over the card (one tap-opened card at a time; Escape closes; the detail sentence is the button's accessible description). Content lives in `safetyContent.ts`; **keep the statuses honest** (only mark Live what works today: currently the location note, emergency 112 and the habits card; phone verification and badges are Rolling out; women-only pools, live location sharing, report/block and trusted contact are Planned). Includes a legend, a "no guarantee" notice and a `tel:112` button. The landing page feature card ("Consent first: women-only pools and live location sharing ... enforced by the server") and the How it works text still describe unbuilt features in the present tense; soften them or build the features.
+
+**Tests:** 200 server, 150 client, all passing at last run. The Leaflet map itself is mocked in jsdom tests, so it has only been checked by build, not rendered in a test.
 
 ## Known limits and gotchas
 
