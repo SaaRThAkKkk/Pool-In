@@ -1,5 +1,7 @@
 import { format } from 'date-fns'
 import { ArrowRight, CarFront, Clock, MapPin, Route, Users } from 'lucide-react'
+import type { StartChatInput } from '../chat/chatApi'
+import { StartChatButton } from '../chat/StartChatButton'
 import { categoryInfo, formatFare, type NearbyPool, type OwnerMatch, type PassengerMatch } from './poolsApi'
 
 const scoreColor = (score: number) =>
@@ -35,7 +37,7 @@ function Reasons({ reasons }: { reasons: string[] }) {
 }
 
 // Ranked car-owner pools that fit the passenger, best first. Every one has already passed every hard rule.
-export function OwnerMatchList({ matches }: { matches: OwnerMatch[] }) {
+export function OwnerMatchList({ matches, chatFor }: { matches: OwnerMatch[]; chatFor?: (match: OwnerMatch) => StartChatInput }) {
   return (
     <ol aria-label="Matching pools" className="space-y-4">
       {matches.map((m, i) => (
@@ -101,6 +103,7 @@ export function OwnerMatchList({ matches }: { matches: OwnerMatch[] }) {
           </dl>
 
           <Reasons reasons={m.reasons} />
+          {chatFor && <StartChatButton label="Message the driver" input={chatFor(m)} />}
           <p className="mt-3 text-xs text-slate-500">Times and distances are estimates. Joining a pool isn't available yet.</p>
         </li>
       ))}
@@ -154,7 +157,13 @@ export function NearbyPoolList({ pools }: { pools: NearbyPool[] }) {
 }
 
 // Passengers who could share a cab. A proposal only: there is no driver or vehicle, and nothing is booked.
-export function PassengerGroupList({ matches }: { matches: PassengerMatch[] }) {
+export function PassengerGroupList({
+  matches,
+  chatFor,
+}: {
+  matches: PassengerMatch[]
+  chatFor?: (match: PassengerMatch) => StartChatInput
+}) {
   return (
     <ol aria-label="Proposed groups" className="space-y-4">
       {matches.map((m, i) => (
@@ -182,6 +191,7 @@ export function PassengerGroupList({ matches }: { matches: PassengerMatch[] }) {
             </div>
           </dl>
           <Reasons reasons={m.reasons} />
+          {chatFor && <StartChatButton label="Message this traveller" input={chatFor(m)} />}
           <p className="mt-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-900">{m.note}</p>
         </li>
       ))}

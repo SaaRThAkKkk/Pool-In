@@ -86,20 +86,20 @@ describe('HowItWorksPage: honesty about what exists', () => {
 
   it('marks what works today as Live, and what is not built yet as Planned', () => {
     renderPage()
-    for (const id of ['account', 'pool-in', 'trip', 'choose']) expect(chip(id)).toBe('Live')
+    for (const id of ['account', 'pool-in', 'trip', 'choose', 'match']) expect(chip(id)).toBe('Live')
     expect(chip('verify')).toBe('Rolling out')
-    for (const id of ['match', 'agree', 'room', 'travel']) expect(chip(id)).toBe('Planned')
+    for (const id of ['agree', 'room', 'travel']) expect(chip(id)).toBe('Planned')
   })
 
-  it('says outright that matching is not live yet', () => {
+  it('says matching is live, but that joining and the Pool Room are not built and nothing is booked', () => {
     renderPage()
-    expect(within(card('match')).getByText(/matching isn't live yet/i)).toBeInTheDocument()
+    expect(within(card('match')).getByText(/nothing is booked/i)).toBeInTheDocument()
     const today = screen.getByRole('region', { name: /where things stand today/i })
-    expect(within(today).getByText(/nobody can find or join a pool yet/i)).toBeInTheDocument()
+    expect(within(today).getByText(/asking to join a pool, negotiating a fare and the pool room are still being built/i)).toBeInTheDocument()
   })
 
   it('words unbuilt steps in the future tense, never as if they already work', () => {
-    for (const id of ['match', 'agree', 'room', 'travel']) {
+    for (const id of ['agree', 'room', 'travel']) {
       expect(STEPS.find((s) => s.id === id)!.details).toMatch(/you'll be able to|we'll search|will get|will be/i)
     }
   })

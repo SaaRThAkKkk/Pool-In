@@ -147,14 +147,15 @@ export class MongoCandidateRepository implements CandidateRepository {
       .slice(0, opts.limit);
   }
 
-  // Other passengers' open requests (not searches still in their five-minute window) that could share a cab.
+  // Other passengers' requests that could share a cab: the open ones, and those still in their own five-minute
+  // search (they are looking for a ride just as much, so the second person to search can find the first).
   async peerRequests(request: PassengerRequest, opts: { now: Date }): Promise<PeerRequest[]> {
     void opts;
     const pa = request.arriveBy.getTime();
     const window = MATCHING.CAB.TIME_WINDOW_MIN * MIN;
 
     const docs = await CabPool.find({
-      status: 'OPEN',
+      status: { $in: ['OPEN', 'SEARCHING'] },
       ...excluding('userId', request.userId),
       ...excluding('_id', request.id),
       peopleCount: { $lte: MATCHING.CAB.MAX_PEOPLE - request.people },

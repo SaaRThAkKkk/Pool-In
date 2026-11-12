@@ -75,9 +75,9 @@ export const STEPS: Step[] = [
     title: 'We look for a match',
     summary: 'Cab requests are matched with pools.',
     details:
-      "When you pool a cab, we'll search both the car-owner pools and other cab requests for a trip that suits you. Seats, luggage and time must fit first; only then do we rank what's left. Matching isn't live yet, so today your request is simply saved.",
+      "When you pool a cab, we search the car-owner pools for a trip that suits you (for five minutes, picking up new pools as they appear), and also other passengers' requests. Seats, luggage, time and your distance limits must fit first; only then do we rank what's left. If nothing fits, we show the closest pools and why they don't fit. Matches are suggestions: nothing is booked.",
     icon: Search,
-    status: 'PLANNED',
+    status: 'LIVE',
   },
   {
     id: 'agree',

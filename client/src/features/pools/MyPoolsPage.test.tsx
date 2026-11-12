@@ -96,10 +96,11 @@ describe('MyPoolsPage', () => {
     expect(screen.getByText('Negotiable')).toBeInTheDocument()
   })
 
-  it('warns that nobody can find or join pools yet', async () => {
+  it('says matching is live but joining a pool is not available yet', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ok({ pools: [cabPool()] })))
     renderPage()
-    expect(await screen.findByText(/matching isn't live yet/i)).toBeInTheDocument()
+    expect(await screen.findByText(/matching is live/i)).toBeInTheDocument()
+    expect(screen.getByText(/asking to join a pool isn't available yet/i)).toBeInTheDocument()
   })
 
   it('invites the user to pool in when there are none', async () => {

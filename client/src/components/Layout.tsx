@@ -1,9 +1,30 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Car, Menu, X } from 'lucide-react'
+import { useServerEvent } from '../lib/socket'
+import { CONVERSATIONS_KEY, INBOX_POLL_MS, fetchConversations } from '../features/chat/chatApi'
 import { logoutUser } from '../features/auth/authApi'
 import { ME_KEY, useMe } from '../features/auth/useMe'
+
+// "Messages", with the number of unread messages. Refreshes when a message arrives, and every so often as a fallback.
+function MessagesLink() {
+  const queryClient = useQueryClient()
+  const chats = useQuery({ queryKey: CONVERSATIONS_KEY, queryFn: fetchConversations, refetchInterval: INBOX_POLL_MS, retry: false })
+  useServerEvent('chat:message', () => void queryClient.invalidateQueries({ queryKey: CONVERSATIONS_KEY }))
+  const unread = (chats.data ?? []).reduce((sum, c) => sum + c.unread, 0)
+
+  return (
+    <NavLink to="/chat" className="nav-link">
+      Messages
+      {unread > 0 && (
+        <span aria-label={`${unread} unread`} className="ml-1.5 rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+          {unread > 99 ? '99+' : unread}
+        </span>
+      )}
+    </NavLink>
+  )
+}
 
 function AuthLinks() {
   const me = useMe()
@@ -42,6 +63,7 @@ function AuthLinks() {
         <NavLink to="/pools" end className="nav-link">
           My pools
         </NavLink>
+        <MessagesLink />
         <NavLink to="/dashboard" className="nav-link">
           Dashboard
         </NavLink>

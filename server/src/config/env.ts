@@ -16,7 +16,11 @@ const schema = z.object({
   CLIENT_ORIGIN: z.string().default('http://localhost:5173'),
   // Optional: comma-separated DNS servers for Node (fixes mongodb+srv lookups on networks whose DNS rejects SRV queries)
   DNS_SERVERS: z.string().optional(),
-  SMS_PROVIDER: z.enum(['console']).default('console'),
+  // 'console' prints codes in the terminal (development only). 'disabled' sends nothing and says so (hosted demo).
+  SMS_PROVIDER: z.enum(['console', 'disabled']).default('console'),
+  // How many proxies sit in front of the server (e.g. the hosting platform, plus a Cloudflare proxy), so the real
+  // visitor address is used for rate limiting. 0 when the server is reached directly.
+  TRUST_PROXY: z.coerce.number().int().min(0).max(5).default(0),
   // Place search (Photon) and routing (OSRM). The defaults are free public demo servers with fair-use limits:
   // fine for development, use your own instance or a paid provider before real traffic.
   PHOTON_URL: z.url().default('https://photon.komoot.io'),

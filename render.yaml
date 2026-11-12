@@ -1,0 +1,28 @@
+# Render blueprint for the API (server/). The frontend is hosted on Cloudflare Pages (client/).
+# Secrets are entered in the Render dashboard, never committed.
+services:
+  - type: web
+    name: pool-in-api
+    runtime: node
+    plan: free
+    rootDir: server
+    # devDependencies (TypeScript) are needed to build, even though NODE_ENV is production.
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SMS_PROVIDER
+        value: disabled
+      # Render's own proxy plus the Cloudflare Pages proxy in front of it.
+      - key: TRUST_PROXY
+        value: 2
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      # The address of the Cloudflare Pages site, e.g. https://pool-in.pages.dev
+      - key: CLIENT_ORIGIN
+        sync: false

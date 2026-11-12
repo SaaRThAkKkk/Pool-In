@@ -13,7 +13,7 @@ import type { PoolMatcher } from './services/matching/matcher.js';
 import type { SearchNotifier } from './services/realtime/notifier.js';
 
 export type AppConfig = Pick<Env, 'CLIENT_ORIGIN' | 'JWT_SECRET' | 'JWT_EXPIRES_DAYS' | 'NODE_ENV'> &
-  Partial<Pick<Env, 'REQUIRE_VERIFIED_PHONE_FOR_BOOKING'>>;
+  Partial<Pick<Env, 'REQUIRE_VERIFIED_PHONE_FOR_BOOKING' | 'TRUST_PROXY'>>;
 
 export interface AppOptions {
   sms: SmsProvider;
@@ -27,6 +27,8 @@ export function createApp(env: AppConfig, opts: AppOptions): Express {
   const app = express();
 
   app.disable('x-powered-by');
+  // Behind a proxy, the visitor's address is in X-Forwarded-For. Only trusted for the configured number of hops.
+  if (env.TRUST_PROXY) app.set('trust proxy', env.TRUST_PROXY);
   app.use(helmet());
   app.use(
     cors({

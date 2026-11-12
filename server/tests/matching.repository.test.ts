@@ -291,16 +291,25 @@ describe('passenger-to-passenger candidates', () => {
     expect(result.matches[0]!.note).toMatch(/not a confirmed ride/i);
   });
 
-  it('ignores requests that are still in their own five-minute search, cancelled, or the passenger\'s own', async () => {
+  it('ignores cancelled and finished requests, and the passenger\'s own', async () => {
     const mine = new Types.ObjectId();
-    await near({ status: 'SEARCHING' });
-    await near({ status: 'SEARCH_TIMED_OUT' });
     await near({ status: 'CANCELLED' });
+    await near({ status: 'EXPIRED' });
     await near({ userId: mine });
     const ok = await near();
 
     const found = await repo.peerRequests(me({ userId: mine.toString() }), { now: NOW });
     expect(found.map((p) => p.id)).toEqual([ok.id]);
+  });
+
+  it('also finds a request that is still in its own five-minute search, so the second person to search sees the first', async () => {
+    const searching = await near({ status: 'SEARCHING', searchExpiresAt: new Date(NOW.getTime() + 4 * 60_000) });
+    const open = await near();
+    const found = await repo.peerRequests(me(), { now: NOW });
+    expect(found.map((p) => p.id).sort()).toEqual([searching.id, open.id].sort());
+
+    const { matcher } = newMatcher();
+    expect((await matcher.findPassengerMatches(me(), { now: NOW })).matches.map((m) => m.requestId).sort()).toEqual([searching.id, open.id].sort());
   });
 
   it('leaves out requests at a different time, too many people together, or heading elsewhere', async () => {

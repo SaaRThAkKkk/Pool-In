@@ -94,6 +94,12 @@ describe('SearchPanel', () => {
     expect(within(list).getByText('88')).toBeInTheDocument()
   })
 
+  it('has a Message button on each matching pool, which checks the match for this very search', async () => {
+    stub(() => state({ matches: [match('pool-9', 88)] }))
+    renderPanel()
+    expect(await screen.findByRole('button', { name: /message the driver/i })).toBeInTheDocument()
+  })
+
   it('warns when routing trouble means the list may be incomplete', async () => {
     stub(() => state({ matching: { status: 'DEGRADED' } }))
     renderPanel()

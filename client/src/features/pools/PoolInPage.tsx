@@ -27,6 +27,7 @@ import {
   type Luggage,
   type OwnerMatch,
   type PlaceInput,
+  type PoolCabPayload,
   type PoolInPayload,
   type PoolInResult,
   type VehicleCategory,
@@ -169,7 +170,18 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
 }
 
 // Shown when pools already fit the trip: nothing new is created, the best matches are listed instead.
-function MatchesFoundPanel({ matches, degraded, onEdit }: { matches: OwnerMatch[]; degraded: boolean; onEdit: () => void }) {
+function MatchesFoundPanel({
+  matches,
+  degraded,
+  trip,
+  onEdit,
+}: {
+  matches: OwnerMatch[]
+  degraded: boolean
+  /** What was searched for, so a chat with a driver can be checked against it (nothing was saved). */
+  trip: PoolCabPayload | null
+  onEdit: () => void
+}) {
   const n = matches.length
   return (
     <section aria-label="Matching pools" className="animate-pop-in space-y-5">
@@ -188,7 +200,7 @@ function MatchesFoundPanel({ matches, degraded, onEdit }: { matches: OwnerMatch[
           We couldn't check every pool just now, so there may be others.
         </p>
       )}
-      <OwnerMatchList matches={matches} />
+      <OwnerMatchList matches={matches} chatFor={trip ? (m) => ({ poolId: m.poolId, trip }) : undefined} />
       <button type="button" onClick={onEdit} className="btn-secondary !py-2 text-sm">
         Change my search
       </button>
@@ -252,6 +264,7 @@ export function PoolInPage() {
   const [luggage, setLuggage] = useState<Luggage>(EMPTY_LUGGAGE)
   const [formError, setFormError] = useState<string | null>(null)
   const [result, setResult] = useState<PoolInResult | null>(null)
+  const [submitted, setSubmitted] = useState<PoolInPayload | null>(null)
   const startPlace = startChoice === 'auto' ? currentPlace : startChoice
 
   const {
@@ -303,8 +316,9 @@ export function PoolInPage() {
 
   const mutation = useMutation({
     mutationFn: poolIn,
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       void queryClient.invalidateQueries({ queryKey: MY_POOLS_KEY })
+      setSubmitted(variables)
       setResult(data)
     },
     onError: (err) => {
@@ -432,7 +446,12 @@ export function PoolInPage() {
     )
   } else if (result?.outcome === 'MATCHES_FOUND') {
     resultView = (
-      <MatchesFoundPanel matches={result.matching.matches} degraded={result.matching.status === 'DEGRADED'} onEdit={startAgain} />
+      <MatchesFoundPanel
+        matches={result.matching.matches}
+        degraded={result.matching.status === 'DEGRADED'}
+        trip={submitted?.mode === 'POOL_CAB' ? submitted : null}
+        onEdit={startAgain}
+      />
     )
   } else if (result) {
     resultView = <OutcomePanel result={result} onAnother={startAgain} />

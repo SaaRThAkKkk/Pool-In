@@ -11,6 +11,8 @@ import { RequireAuth } from '../features/auth/RequireAuth'
 import { VerifyPhonePage } from '../features/auth/VerifyPhonePage'
 import { PoolInPage } from '../features/pools/PoolInPage'
 import { MyPoolsPage } from '../features/pools/MyPoolsPage'
+import { ChatPage } from '../features/chat/ChatPage'
+import { InboxPage } from '../features/chat/InboxPage'
 
 export function AppRoutes() {
   return (
@@ -27,6 +29,8 @@ export function AppRoutes() {
           <Route path="verify-phone" element={<VerifyPhonePage />} />
           <Route path="pools" element={<MyPoolsPage />} />
           <Route path="pool-in" element={<PoolInPage />} />
+          <Route path="chat" element={<InboxPage />} />
+          <Route path="chat/:id" element={<ChatPage />} />
         </Route>
 
         <Route path="*" element={<NotFoundPage />} />

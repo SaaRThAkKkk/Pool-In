@@ -89,6 +89,8 @@ function stubApi(handlers: Handlers = {}) {
         return (handlers.pools ?? (() => ok(ownerCreated, 201)))(url)
       case '/api/pools/mine':
         return ok({ pools: [] })
+      case '/api/chat/conversations':
+        return ok({ conversation: { id: 'conv1', kind: 'OWNER_MATCH', with: { name: 'Ravi', role: 'DRIVER' }, trip: { from: 'a', to: 'b' }, lastMessage: null, unread: 0, updatedAt: '2030-01-01T00:00:00.000Z' } })
     }
     throw new Error(`unexpected request ${input}`)
   })
@@ -780,6 +782,25 @@ describe('PoolInPage: "Pool a cab" -> match now, else a five-minute search', () 
     expect(items[0]).toHaveTextContent('Best match')
     expect(items[0]).toHaveTextContent('91')
     expect(items[1]).toHaveTextContent('Match 2')
+  })
+
+  it('lets the user message a matching pool\'s driver, sending the trip they searched for (nothing was saved)', async () => {
+    const api = stubApi({ pools: () => ok({ outcome: 'MATCHES_FOUND', matching: { status: 'OK', matches: [clientMatch('pool-7', 91)] } }) })
+    stubGeolocation()
+    const u = userEvent.setup()
+    renderPage()
+    await ready()
+
+    await fillTrip(u)
+    await cabMode(u)
+    await submit(u)
+    await u.click(await screen.findByRole('button', { name: /message the driver/i }))
+
+    await waitFor(() => expect(api.fetchMock.mock.calls.some(([url]) => url === '/api/chat/conversations')).toBe(true))
+    const call = api.fetchMock.mock.calls.find(([url]) => url === '/api/chat/conversations')!
+    const body = JSON.parse((call[1] as RequestInit).body as string)
+    expect(body.poolId).toBe('pool-7')
+    expect(body.trip).toMatchObject({ mode: 'POOL_CAB', people: 1, destination: { label: airport.label } })
   })
 
   it('warns that the list may be incomplete when some pools could not be checked', async () => {

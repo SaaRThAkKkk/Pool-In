@@ -40,7 +40,7 @@ export function MyPoolsPage() {
       {pools.data && pools.data.length > 0 && (
         <>
           <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-            Pool matching isn't live yet: nobody can find or join these pools until it launches.
+            Matching is live: open requests and pools are checked against each other. Asking to join a pool isn't available yet, so nothing is booked.
           </p>
           <ul className="space-y-4">
             {pools.data.map((pool) => (

@@ -22,7 +22,7 @@ export interface SearchDeps {
 const KEEP_MATCHES = 10;
 
 // What the matching code needs, taken straight from what the passenger submitted (before it is saved).
-function requestFromInput(userId: string, input: PoolCabInput): PassengerRequest | null {
+export function requestFromInput(userId: string, input: PoolCabInput): PassengerRequest | null {
   const o = input.origin.coordinates;
   const d = input.destination.coordinates;
   if (!o || !d) return null;

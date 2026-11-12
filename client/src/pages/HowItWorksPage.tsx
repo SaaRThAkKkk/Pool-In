@@ -105,8 +105,9 @@ export function HowItWorksPage() {
       <section aria-label="Where things stand today" className="rounded-3xl border border-amber-200 bg-amber-50 p-6">
         <h2 className="text-lg font-bold text-amber-950">Where things stand today</h2>
         <p className="mt-1 text-sm text-amber-950/85">
-          You can already create an account, verify your phone, and Pool In to save a pool or a cab request. Searching for,
-          joining and negotiating pools is still being built, so nobody can find or join a pool yet.
+          You can already create an account, verify your phone, Pool In, and be matched: we search for pools and other
+          passengers that fit your trip and show them to you. Asking to join a pool, negotiating a fare and the Pool Room
+          are still being built, so nothing is booked yet.
         </p>
       </section>
 

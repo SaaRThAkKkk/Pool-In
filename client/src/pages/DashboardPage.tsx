@@ -209,7 +209,7 @@ function PoolList({ pools }: { pools: Pool[] }) {
         <Stat icon={CarTaxiFront} label="Cab requests" value={pools.length - owner} />
       </div>
       <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-        Pool matching isn't live yet: nobody can find or join these pools until it launches.
+        Matching is live: open requests and pools are checked against each other. Asking to join a pool isn't available yet, so nothing is booked.
       </p>
       <ul className="space-y-4">
         {shown.map((pool) => (

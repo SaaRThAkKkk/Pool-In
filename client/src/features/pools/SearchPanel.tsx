@@ -124,7 +124,7 @@ export function SearchPanel({ searchId, windowSeconds, startedDegraded = false, 
         </p>
       )}
 
-      {matches.length > 0 && <OwnerMatchList matches={matches} />}
+      {matches.length > 0 && <OwnerMatchList matches={matches} chatFor={(m) => ({ poolId: m.poolId, requestId: searchId })} />}
 
       {matches.length === 0 && nearest.length > 0 && <NearbyPoolList pools={nearest} />}
 
@@ -136,7 +136,7 @@ export function SearchPanel({ searchId, windowSeconds, startedDegraded = false, 
               These are proposals only. Nothing is booked, and there is no driver or vehicle yet.
             </p>
           </div>
-          <PassengerGroupList matches={groups} />
+          <PassengerGroupList matches={groups} chatFor={(m) => ({ requestId: searchId, otherRequestId: m.requestId })} />
         </section>
       )}
 

@@ -1,4 +1,5 @@
 import type { Env } from '../../config/env.js';
+import { AppError } from '../../utils/errors.js';
 import { logger } from '../../utils/logger.js';
 
 export interface SmsProvider {
@@ -14,10 +15,20 @@ export class ConsoleSmsProvider implements SmsProvider {
   }
 }
 
+// For a hosted demo with no SMS gateway yet: nothing is sent and nothing is pretended. Asking for a code fails
+// with a clear message, so a phone simply stays unverified.
+export class DisabledSmsProvider implements SmsProvider {
+  async sendOtp(): Promise<void> {
+    throw new AppError(503, 'SMS_UNAVAILABLE', "Phone verification by SMS isn't available on this demo yet.");
+  }
+}
+
 export function createSmsProvider(env: Pick<Env, 'SMS_PROVIDER'>): SmsProvider {
   switch (env.SMS_PROVIDER) {
     case 'console':
       return new ConsoleSmsProvider();
+    case 'disabled':
+      return new DisabledSmsProvider();
   }
 }
 // To go live: add a real provider (e.g. an India-compliant SMS gateway with a registered DLT template)

@@ -192,7 +192,7 @@ describe('DashboardPage: your pools', () => {
     expect(stat('Cab requests')).toBe('1')
     expect(within(section).getAllByText('Car owner')).toHaveLength(2)
     expect(within(section).getAllByText('Cab')).toHaveLength(1)
-    expect(within(section).getByText(/matching isn't live yet/i)).toBeInTheDocument()
+    expect(within(section).getByText(/matching is live/i)).toBeInTheDocument()
     expect(within(section).getByRole('link', { name: /view in my pools/i })).toHaveAttribute('href', '/pools')
   })
 
