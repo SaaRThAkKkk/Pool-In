@@ -1,0 +1,16 @@
+{
+  // Cloudflare Workers configuration for the frontend. Deployed by `npx wrangler deploy` after `npm run build`.
+  "name": "pool-in",
+  "main": "worker.js",
+  "compatibility_date": "2026-01-01",
+  // API_ORIGIN is set in the Cloudflare dashboard; do not wipe dashboard variables on each deploy.
+  "keep_vars": true,
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    // Page addresses like /pools or /chat/123 are handled by the app itself.
+    "not_found_handling": "single-page-application",
+    // Only these paths run the worker (they are forwarded to the API server); everything else is a static file.
+    "run_worker_first": ["/api/*", "/socket.io/*"]
+  }
+}
