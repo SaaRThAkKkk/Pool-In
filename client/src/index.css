@@ -144,9 +144,9 @@ body {
 .user-dot-ring + .user-dot-ring {
   animation-delay: 1.3s;
 }
+/* No soft glow under the dot: a blurred blue patch on the map reads as haze. */
 .user-dot-halo {
-  inset: 16px;
-  background: radial-gradient(circle, rgb(37 99 235 / 0.28), rgb(37 99 235 / 0) 70%);
+  display: none;
 }
 .user-dot-core {
   inset: 20px;

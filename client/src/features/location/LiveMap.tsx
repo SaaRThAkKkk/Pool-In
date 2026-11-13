@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import L from 'leaflet'
-import { Circle, MapContainer, Marker, TileLayer, useMap } from 'react-leaflet'
+import { MapContainer, Marker, TileLayer, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { GeoPosition } from './useLiveLocation'
 
@@ -51,18 +51,9 @@ export function LiveMap({ position, recenterSignal = 0 }: { position: GeoPositio
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
-      {position && (
-        <>
-          <Circle
-            center={[position.lat, position.lng]}
-            radius={position.accuracy}
-            // How precise the fix is. Kept faint: zoomed right in it covers a lot of the map.
-            pathOptions={{ color: '#2563eb', weight: 1, opacity: 0.35, dashArray: '4 6', fillColor: '#3b82f6', fillOpacity: 0.06 }}
-            interactive={false}
-          />
-          <Marker position={[position.lat, position.lng]} icon={userIcon} interactive={false} keyboard={false} />
-        </>
-      )}
+      {/* Only the dot is drawn. A circle for how precise the fix is would cover the whole view in blue when zoomed
+          in (on a laptop it can be a kilometre wide); the precision is given in words beside the map instead. */}
+      {position && <Marker position={[position.lat, position.lng]} icon={userIcon} interactive={false} keyboard={false} />}
       <Follow position={position} recenterSignal={recenterSignal} />
     </MapContainer>
   )
