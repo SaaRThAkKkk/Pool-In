@@ -18,7 +18,7 @@ export function HomeHero() {
         <LiveMap position={position} recenterSignal={recenterSignal} />
       </div>
       {/* Soft wash so the card reads clearly on busy map areas. */}
-      <div aria-hidden className="pointer-events-none absolute inset-0 z-[500] bg-linear-to-r from-slate-900/25 via-transparent to-transparent" />
+      <div aria-hidden className="hero-wash pointer-events-none absolute inset-0 z-[500] bg-linear-to-r from-slate-900/25 via-transparent to-transparent" />
 
       {/* Wrapper ignores the pointer so the map stays draggable around the card. */}
       <div className="pointer-events-none relative z-[1000] flex w-full items-start p-4 sm:items-center sm:p-8">

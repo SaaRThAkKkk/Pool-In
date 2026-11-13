@@ -10,6 +10,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="description" content="Pool-In helps you find people travelling your way and share the ride." />
     <title>Pool-In</title>
+    <script>
+      // Apply the saved (or the device's) light/dark choice before anything is drawn, so the page never flashes
+      // the wrong colours. The same rule lives in src/lib/theme.ts.
+      try {
+        var t = localStorage.getItem('pool-in-theme')
+        if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+        if (t === 'dark') document.documentElement.classList.add('dark')
+        document.documentElement.style.colorScheme = t
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

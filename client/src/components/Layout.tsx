@@ -3,6 +3,8 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-do
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Car, Menu, X } from 'lucide-react'
 import { useServerEvent } from '../lib/socket'
+import { RouteTransition } from './RouteTransition'
+import { ThemeToggle } from './ThemeToggle'
 import { CONVERSATIONS_KEY, INBOX_POLL_MS, fetchConversations } from '../features/chat/chatApi'
 import { logoutUser } from '../features/auth/authApi'
 import { ME_KEY, useMe } from '../features/auth/useMe'
@@ -122,22 +124,26 @@ export function Layout() {
       </a>
       <header className="sticky top-0 z-50 border-b border-slate-200/70 bg-white/75 backdrop-blur-lg">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-          <Link to="/" className="group flex items-center gap-2 text-lg font-extrabold text-brand-700">
+          <Link to="/" className="group mr-auto flex items-center gap-2 text-lg font-extrabold text-brand-700">
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-linear-to-br from-brand-600 to-indigo-600 text-white shadow-md shadow-brand-500/30 transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-110">
               <Car aria-hidden className="h-5 w-5" />
             </span>
             Pool-In
           </Link>
-          <button
-            type="button"
-            aria-label="Menu"
-            aria-expanded={menuOpen}
-            aria-controls="main-nav"
-            onClick={() => setMenuOpen(!menuOpen)}
-            className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-700 hover:bg-slate-100 sm:hidden"
-          >
-            {menuOpen ? <X aria-hidden className="h-6 w-6" /> : <Menu aria-hidden className="h-6 w-6" />}
-          </button>
+          {/* On phones the dark-mode switch sits beside the menu button; on larger screens it follows the links. */}
+          <div className="flex items-center gap-1 sm:order-last sm:ml-1">
+            <ThemeToggle />
+            <button
+              type="button"
+              aria-label="Menu"
+              aria-expanded={menuOpen}
+              aria-controls="main-nav"
+              onClick={() => setMenuOpen(!menuOpen)}
+              className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-700 hover:bg-slate-100 sm:hidden"
+            >
+              {menuOpen ? <X aria-hidden className="h-6 w-6" /> : <Menu aria-hidden className="h-6 w-6" />}
+            </button>
+          </div>
           <nav
             id="main-nav"
             aria-label="Main"
@@ -152,6 +158,7 @@ export function Layout() {
             <AuthLinks />
           </nav>
         </div>
+        <RouteTransition />
       </header>
       <main id="main" className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:py-8">
         {/* Keyed by path so each page fades in on navigation. */}

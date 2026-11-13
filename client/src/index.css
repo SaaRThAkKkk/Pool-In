@@ -380,3 +380,220 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* === Dark mode ============================================================================================
+   Switched on by the `dark` class on <html> (src/lib/theme.ts). Rather than restyle every component, the
+   colours they already use are swapped here: surfaces and greys flip from light to dark, pale tinted panels
+   become deep ones, and the dark text shades become light ones. */
+html.dark {
+  /* Surfaces: "white" is the card colour, and the slate scale runs the other way round. */
+  --color-white: #111a2e;
+  --color-slate-50: #0d1526;
+  --color-slate-100: #18233b;
+  --color-slate-200: #25324d;
+  --color-slate-300: #354461;
+  --color-slate-400: #6b7a94;
+  --color-slate-500: #94a3b8;
+  --color-slate-600: #b8c4d6;
+  --color-slate-700: #d5dde9;
+  --color-slate-800: #e8edf4;
+  --color-slate-900: #f4f7fb;
+
+  /* Pale tinted panels and their borders become deep tints. */
+  --color-brand-50: #14254a;
+  --color-brand-100: #1c3366;
+  --color-indigo-100: #232a5c;
+  --color-emerald-50: #0c2a22;
+  --color-emerald-100: #103a2e;
+  --color-emerald-200: #17513f;
+  --color-green-50: #0d2a1a;
+  --color-green-200: #17502f;
+  --color-amber-50: #2e2209;
+  --color-amber-100: #3d2d0b;
+  --color-amber-200: #5b4310;
+  --color-red-50: #33141a;
+  --color-red-200: #6b2530;
+
+  /* Shades that are only ever used for text on those panels become light. */
+  --color-emerald-800: #a7f3d0;
+  --color-emerald-900: #d1fae5;
+  --color-green-800: #bbf7d0;
+  --color-green-900: #dcfce7;
+  --color-amber-900: #fde68a;
+  --color-amber-950: #fef3c7;
+  --color-red-900: #fecaca;
+}
+
+html.dark body {
+  background-color: #070d1a;
+  background-image:
+    radial-gradient(60rem 30rem at 85% -10%, rgb(99 102 241 / 0.18), transparent 60%),
+    radial-gradient(50rem 28rem at -10% 10%, rgb(37 99 235 / 0.16), transparent 60%);
+}
+
+/* Text placed on coloured buttons, gradients and badges must stay white (the "white" surface colour above is
+   dark). Likewise the few solid dark chips. */
+html.dark [class*='text-white'] {
+  color: rgb(255 255 255 / 0.95);
+}
+html.dark .bg-slate-900 {
+  background-color: #020617;
+}
+html.dark .ring-white,
+html.dark [class*='ring-white'] {
+  --tw-ring-color: rgb(255 255 255 / 0.18);
+}
+
+/* Coloured text that sits directly on the page needs a lighter shade to stay readable. */
+html.dark .text-brand-600,
+html.dark .text-brand-700 {
+  color: #8fb8ff;
+}
+html.dark .nav-link[aria-current='page'] {
+  color: #8fb8ff;
+}
+html.dark .text-red-600,
+html.dark .text-red-700 {
+  color: #fca5a5;
+}
+html.dark .text-emerald-600,
+html.dark .text-emerald-700 {
+  color: #6ee7b7;
+}
+html.dark .text-amber-600 {
+  color: #fcd34d;
+}
+
+/* Maps: the street map is drawn light, so it is dimmed and tinted to sit in a dark page. */
+html.dark .leaflet-tile {
+  filter: invert(1) hue-rotate(185deg) brightness(0.92) contrast(0.9) saturate(0.6);
+}
+html.dark .leaflet-container {
+  background: #0d1526;
+}
+html.dark .leaflet-control-attribution {
+  background: rgb(13 21 38 / 0.8);
+  color: #94a3b8;
+}
+html.dark .leaflet-bar a {
+  background: #18233b;
+  color: #e8edf4;
+  border-color: #25324d;
+}
+/* The grey wash over the home map exists to help the card on a light map; on a dark one it only adds haze. */
+html.dark .hero-wash {
+  display: none;
+}
+html.dark .aurora span {
+  opacity: 0.35;
+}
+html.dark .journey-base {
+  stroke: #1c3366;
+}
+html.dark .journey-stop circle:first-child {
+  fill: #111a2e;
+}
+
+/* The light/dark switch: the new icon turns into place. */
+.theme-toggle-icon {
+  animation: theme-spin 0.45s cubic-bezier(0.2, 0.8, 0.3, 1.2);
+}
+@keyframes theme-spin {
+  from {
+    transform: rotate(-90deg) scale(0.4);
+    opacity: 0;
+  }
+}
+/* Colours ease across when the mode is switched, instead of snapping. */
+html.theme-switching *,
+html.theme-switching *::before,
+html.theme-switching *::after {
+  transition:
+    background-color 0.35s ease,
+    border-color 0.35s ease,
+    color 0.35s ease !important;
+}
+
+/* === The car that drives to each page ====================================================================
+   A strip under the header, shown for about a second after every page change (RouteTransition.tsx). */
+.route-transition {
+  position: absolute;
+  inset-inline: 0;
+  top: 100%;
+  height: 2.25rem;
+  overflow: hidden;
+  pointer-events: none;
+  animation: transit-fade 1.1s ease forwards;
+}
+.route-transition-road {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 1.05rem;
+  height: 2px;
+  background: repeating-linear-gradient(90deg, rgb(59 130 246 / 0.75) 0 10px, transparent 10px 18px);
+  transform-origin: left;
+  animation: transit-road 0.75s cubic-bezier(0.3, 0, 0.2, 1) forwards;
+}
+.route-transition-car {
+  position: absolute;
+  top: 0.4rem;
+  left: 0;
+  filter: drop-shadow(0 2px 3px rgb(15 23 42 / 0.3));
+  animation: transit-drive 0.8s cubic-bezier(0.45, 0, 0.2, 1) forwards;
+}
+.route-transition-stop {
+  position: absolute;
+  right: 0.75rem;
+  top: 0.3rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border-radius: 9999px;
+  padding: 0.2rem 0.6rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  box-shadow: 0 4px 10px rgb(15 23 42 / 0.25);
+  transform: scale(0);
+  animation: transit-arrive 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.4) 0.6s forwards;
+}
+@keyframes transit-road {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+@keyframes transit-drive {
+  from {
+    left: -3rem;
+  }
+  to {
+    left: calc(100% - 9.5rem);
+  }
+}
+@keyframes transit-arrive {
+  to {
+    transform: scale(1);
+  }
+}
+@keyframes transit-fade {
+  0%,
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .route-transition {
+    display: none;
+  }
+}
+html.dark .text-shimmer {
+  background-image: linear-gradient(100deg, #60a5fa 0%, #a5b4fc 35%, #e0f2fe 50%, #a5b4fc 65%, #60a5fa 100%);
+}

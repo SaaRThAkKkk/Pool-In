@@ -29,7 +29,7 @@ export function LandingPage() {
           <h2 className="text-center text-xl font-bold tracking-tight sm:text-2xl">From your door to your destination, together</h2>
           {/* Decoration: a road that draws itself, with a car travelling from the first stop to the last. */}
           <svg aria-hidden viewBox="0 0 1000 80" className="mt-5 w-full">
-            <path d={ROAD} fill="none" stroke="#dbeafe" strokeWidth="10" strokeLinecap="round" />
+            <path d={ROAD} fill="none" stroke="#dbeafe" strokeWidth="10" strokeLinecap="round" className="journey-base" />
             <path d={ROAD} fill="none" stroke="#3b82f6" strokeWidth="2.5" strokeLinecap="round" className="journey-road" />
             {[20, 500, 980].map((x, i) => (
               <g key={x} className="journey-stop" style={{ animationDelay: `${i * 4.2}s` }}>
