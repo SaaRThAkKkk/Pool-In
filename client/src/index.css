@@ -120,6 +120,14 @@ body {
 }
 
 /* Pulsing "you are here" marker on the map (a Leaflet divIcon, so it needs plain CSS). */
+/* The home map fades out before it jumps to the user's position and back in once the new view is sharp. */
+.live-map {
+  transition: opacity 0.35s ease;
+}
+.live-map.map-hidden {
+  opacity: 0;
+}
+
 .user-dot {
   background: transparent;
   border: 0;
