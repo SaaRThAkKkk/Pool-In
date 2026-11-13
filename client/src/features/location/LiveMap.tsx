@@ -9,12 +9,13 @@ const DEFAULT_CENTER: [number, number] = [22.5, 79]
 const DEFAULT_ZOOM = 5
 const USER_ZOOM = 15
 
-// Pulsing dot; the animation lives in index.css (.user-dot-*).
+// "You are here": a dot with two rings rippling out of it. The styling and animation live in index.css
+// (.user-dot-*). The marker box is as large as the rings ever get, so nothing is stretched and it stays sharp.
 const userIcon = L.divIcon({
   className: 'user-dot',
-  html: '<span class="user-dot-pulse"></span><span class="user-dot-core"></span>',
-  iconSize: [18, 18],
-  iconAnchor: [9, 9],
+  html: '<span class="user-dot-ring"></span><span class="user-dot-ring"></span><span class="user-dot-halo"></span><span class="user-dot-core"></span>',
+  iconSize: [56, 56],
+  iconAnchor: [28, 28],
 })
 
 // Moves the map to the user on the first fix, and again whenever `recenterSignal` changes.
@@ -55,7 +56,9 @@ export function LiveMap({ position, recenterSignal = 0 }: { position: GeoPositio
           <Circle
             center={[position.lat, position.lng]}
             radius={position.accuracy}
-            pathOptions={{ color: '#2563eb', weight: 1, fillOpacity: 0.12 }}
+            // How precise the fix is. Kept faint: zoomed right in it covers a lot of the map.
+            pathOptions={{ color: '#2563eb', weight: 1, opacity: 0.35, dashArray: '4 6', fillColor: '#3b82f6', fillOpacity: 0.06 }}
+            interactive={false}
           />
           <Marker position={[position.lat, position.lng]} icon={userIcon} interactive={false} keyboard={false} />
         </>

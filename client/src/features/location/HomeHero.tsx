@@ -26,9 +26,7 @@ export function HomeHero() {
           <div className="animate-fade-up" style={{ animationDelay: '100ms' }}>
             <h1 className="text-3xl font-extrabold tracking-tight sm:text-4xl">
               Share the ride.{' '}
-              <span className="bg-linear-to-r from-brand-600 to-indigo-500 bg-clip-text text-transparent">
-                Split the cost.
-              </span>
+              <span className="text-shimmer">Split the cost.</span>
             </h1>
             <p className="mt-2 text-slate-600">
               Pool-In connects people travelling along similar routes so they can coordinate a shared journey.

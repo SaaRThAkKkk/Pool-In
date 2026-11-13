@@ -123,30 +123,196 @@ body {
 .user-dot {
   background: transparent;
   border: 0;
+  /* The marker is a fixed size on screen, whatever the map zoom. */
+  pointer-events: none;
 }
-.user-dot-core,
-.user-dot-pulse {
+.user-dot-ring,
+.user-dot-halo,
+.user-dot-core {
   position: absolute;
-  inset: 0;
   border-radius: 9999px;
 }
+/* Rings are drawn at their full size and animated from small to full, never stretched beyond it, so their edges
+   stay sharp instead of going soft and pixelated. */
+.user-dot-ring {
+  inset: 0;
+  border: 2px solid rgb(37 99 235 / 0.55);
+  opacity: 0;
+  will-change: transform, opacity;
+  animation: user-ring 2.6s cubic-bezier(0.2, 0.6, 0.3, 1) infinite;
+}
+.user-dot-ring + .user-dot-ring {
+  animation-delay: 1.3s;
+}
+.user-dot-halo {
+  inset: 16px;
+  background: radial-gradient(circle, rgb(37 99 235 / 0.28), rgb(37 99 235 / 0) 70%);
+}
 .user-dot-core {
-  background: #2563eb;
+  inset: 20px;
+  background: radial-gradient(circle at 35% 30%, #60a5fa, #2563eb 55%, #1d4ed8);
   border: 3px solid #ffffff;
-  box-shadow: 0 1px 6px rgb(0 0 0 / 0.35);
+  box-shadow:
+    0 2px 6px rgb(15 23 42 / 0.35),
+    0 0 0 1px rgb(37 99 235 / 0.25);
+  animation: user-breathe 2.6s ease-in-out infinite;
 }
-.user-dot-pulse {
-  background: rgb(37 99 235 / 0.45);
-  animation: user-pulse 2s ease-out infinite;
-}
-@keyframes user-pulse {
+@keyframes user-ring {
   0% {
-    transform: scale(1);
-    opacity: 0.8;
+    transform: scale(0.3);
+    opacity: 0.9;
+  }
+  70% {
+    opacity: 0.15;
   }
   100% {
-    transform: scale(3.6);
+    transform: scale(1);
     opacity: 0;
+  }
+}
+@keyframes user-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+/* --- Small touches of motion across the site ------------------------------------------------------------ */
+
+/* A slow sheen across gradient headline text. */
+.text-shimmer {
+  background-image: linear-gradient(100deg, #1d4ed8 0%, #6366f1 35%, #38bdf8 50%, #6366f1 65%, #1d4ed8 100%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 6s linear infinite;
+}
+@keyframes shimmer {
+  to {
+    background-position: -220% 0;
+  }
+}
+
+/* A highlight that sweeps across a primary button when it is hovered. */
+.btn-primary {
+  position: relative;
+  overflow: hidden;
+}
+.btn-primary::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 35%, rgb(255 255 255 / 0.35) 50%, transparent 65%);
+  transform: translateX(-120%);
+  pointer-events: none;
+}
+.btn-primary:hover::after {
+  transform: translateX(120%);
+  transition: transform 0.7s ease;
+}
+
+/* Soft colour that drifts slowly behind every page. */
+.aurora {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+}
+.aurora span {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(70px);
+  opacity: 0.5;
+  will-change: transform;
+}
+.aurora span:nth-child(1) {
+  top: -12rem;
+  right: -8rem;
+  height: 30rem;
+  width: 30rem;
+  background: rgb(99 102 241 / 0.22);
+  animation: drift-a 26s ease-in-out infinite alternate;
+}
+.aurora span:nth-child(2) {
+  bottom: -14rem;
+  left: -10rem;
+  height: 32rem;
+  width: 32rem;
+  background: rgb(56 189 248 / 0.2);
+  animation: drift-b 32s ease-in-out infinite alternate;
+}
+@keyframes drift-a {
+  to {
+    transform: translate(-8rem, 6rem) scale(1.15);
+  }
+}
+@keyframes drift-b {
+  to {
+    transform: translate(9rem, -5rem) scale(1.1);
+  }
+}
+
+/* The journey strip on the home page: a road that draws itself, with a car travelling along it. */
+.journey-road {
+  stroke-dasharray: 6 10;
+  animation: road-move 1.2s linear infinite;
+}
+@keyframes road-move {
+  to {
+    stroke-dashoffset: -16;
+  }
+}
+.journey-car {
+  offset-path: path('M 20 40 C 180 -10, 320 90, 500 40 S 820 -10, 980 40');
+  offset-rotate: auto;
+  animation: car-drive 9s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+@keyframes car-drive {
+  0% {
+    offset-distance: 0%;
+    opacity: 0;
+  }
+  6%,
+  94% {
+    opacity: 1;
+  }
+  100% {
+    offset-distance: 100%;
+    opacity: 0;
+  }
+}
+.journey-stop {
+  animation: stop-pop 9s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@keyframes stop-pop {
+  0%,
+  8%,
+  100% {
+    transform: scale(1);
+  }
+  4% {
+    transform: scale(1.35);
+  }
+}
+
+/* A gentle float for small decorative icons. */
+.float-slow {
+  animation: float-slow 5s ease-in-out infinite;
+}
+@keyframes float-slow {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
   }
 }
 
