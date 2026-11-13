@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import L from 'leaflet'
 import { MapContainer, Marker, TileLayer, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
+import { WheelZoom } from '../maps/WheelZoom'
 import { fadeJump } from './mapMotion'
 import type { GeoPosition } from './useLiveLocation'
 
@@ -62,7 +63,7 @@ export function LiveMap({ position, recenterSignal = 0 }: { position: GeoPositio
     <MapContainer
       center={DEFAULT_CENTER}
       zoom={DEFAULT_ZOOM}
-      scrollWheelZoom={false} // the map sits in a page that scrolls
+      scrollWheelZoom={false} // the map sits in a page that scrolls; <WheelZoom> turns it on after a click
       className="live-map h-full w-full"
       aria-label="Map showing your current location"
     >
@@ -74,6 +75,7 @@ export function LiveMap({ position, recenterSignal = 0 }: { position: GeoPositio
           in (on a laptop it can be a kilometre wide); the precision is given in words beside the map instead. */}
       {position && <Marker position={[position.lat, position.lng]} icon={userIcon} interactive={false} keyboard={false} />}
       <Follow position={position} recenterSignal={recenterSignal} />
+      <WheelZoom />
     </MapContainer>
   )
 }

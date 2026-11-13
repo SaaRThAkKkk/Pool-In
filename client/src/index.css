@@ -597,3 +597,27 @@ html.theme-switching *::after {
 html.dark .text-shimmer {
   background-image: linear-gradient(100deg, #60a5fa 0%, #a5b4fc 35%, #e0f2fe 50%, #a5b4fc 65%, #60a5fa 100%);
 }
+
+/* === Scroll to zoom on maps (features/maps/WheelZoom.tsx) =================================================
+   A hint while the pointer is over a map that has not been clicked yet. Only on devices with a mouse. */
+@media (hover: hover) {
+  .wheel-zoom:not(.wheel-zoom-on):hover::after {
+    content: 'Click the map, then scroll to zoom';
+    position: absolute;
+    right: 0.75rem;
+    top: 0.75rem;
+    z-index: 800;
+    border-radius: 9999px;
+    background: rgb(15 23 42 / 0.78);
+    padding: 0.3rem 0.7rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #fff;
+    pointer-events: none;
+    animation: fade-in 0.3s ease-out both;
+  }
+  .wheel-zoom.wheel-zoom-on {
+    outline: 2px solid rgb(59 130 246 / 0.55);
+    outline-offset: -2px;
+  }
+}

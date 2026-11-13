@@ -3,6 +3,7 @@ import L from 'leaflet'
 import { MapContainer, Marker, Polyline, TileLayer, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import type { LatLng } from './mapsApi'
+import { WheelZoom } from './WheelZoom'
 
 const DEFAULT_CENTER: [number, number] = [22.5, 79]
 
@@ -65,6 +66,7 @@ export function RoutePreviewMap({ start, end, path }: Props) {
       {start && <Marker position={[start.lat, start.lng]} icon={startIcon} interactive={false} keyboard={false} />}
       {end && <Marker position={[end.lat, end.lng]} icon={endIcon} interactive={false} keyboard={false} />}
       <FitView start={start} end={end} path={path} />
+      <WheelZoom />
     </MapContainer>
   )
 }
