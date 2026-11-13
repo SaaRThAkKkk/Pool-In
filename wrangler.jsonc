@@ -6,6 +6,8 @@
   "compatibility_date": "2026-01-01",
   // API_ORIGIN is set in the Cloudflare dashboard; do not wipe dashboard variables on each deploy.
   "keep_vars": true,
+  // Every 5 minutes, ask the API server for its health so free hosting never puts it to sleep (see worker.js).
+  "triggers": { "crons": ["*/5 * * * *"] },
   "assets": {
     "directory": "./client/dist",
     "binding": "ASSETS",
